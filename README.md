@@ -1,97 +1,97 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# TimekeeperApp
 
-# Getting Started
+TimekeeperAppは、ユーザーが設定した目標時間に基づいて日々の活動時間を管理し、目標達成をサポートするReact Nativeアプリケーションです。Firebaseと連携し、匿名認証、データ保存、プッシュ通知などの機能を提供します。（開発中）
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## 概要
 
-## Step 1: Start Metro
+このアプリケーションは、利用者が自ら設定した「頭金」と「利用上限時間」に基づいて、日々のスマートフォンの利用時間を意識的にコントロールすることを目的としています。
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## 主な機能 (開発予定を含む)
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+- 匿名認証による簡単な利用開始
+- 頭金設定機能
+- 利用上限時間設定機能
+- 利用時間の自動減少とモニタリング
+- 設定時間を超えた場合のロック機能
+- ロック解除のための課金機能
+- チャレンジ完了時のリワード（Amazonギフト券発行など）
 
-```sh
-# Using npm
-npm start
+## 技術スタック
 
-# OR using Yarn
-yarn start
-```
+- React Native
+- Firebase (Authentication, Firestore, Cloud Functions, etc.)
+- TypeScript
 
-## Step 2: Build and run your app
+## 前提条件
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+開発を開始する前に、[React Native - Setting up the development environment](https://reactnative.dev/docs/environment-setup) に従って、お使いの環境がReact Native開発に対応していることを確認してください。
 
-### Android
+## Firebase 設定
 
-```sh
-# Using npm
-npm run android
+このプロジェクトはFirebaseを使用します。以下の設定が完了していることを確認してください。
 
-# OR using Yarn
-yarn android
-```
+1.  Firebaseコンソールでプロジェクトを作成します。
+2.  AndroidアプリをFirebaseプロジェクトに追加します。
+    - パッケージ名は `com.timekeeperapp` です。
+3.  `google-services.json` ファイルをダウンロードし、プロジェクトの `/android/app/` ディレクトリに配置します。
+4.  iOSアプリをFirebaseプロジェクトに追加します (iOS開発を行う場合)。
+    - バンドルIDは `com.timekeeperapp` です。
+5.  `GoogleService-Info.plist` ファイルをダウンロードし、プロジェクトの `/ios/プロジェクト名/` ディレクトリに配置します (Xcode経由で追加)。
 
-### iOS
+## 開発の始め方
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+1.  **リポジトリをクローンします:**
+    ```sh
+    git clone <repository-url>
+    cd TimekeeperApp
+    ```
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+2.  **依存関係をインストールします:**
+    ```sh
+    npm install
+    # または
+    # yarn install
+    ```
 
-```sh
-bundle install
-```
+3.  **Metroサーバーを起動します:**
+    新しいターミナルを開き、プロジェクトルートで以下のコマンドを実行します。
+    ```sh
+    npm start
+    # または
+    # yarn start
+    ```
 
-Then, and every time you update your native dependencies, run:
+4.  **アプリケーションをビルド・実行します:**
+    Metroサーバーを実行したまま、別のターミナルを開き、プロジェクトルートで以下のコマンドを実行します。
 
-```sh
-bundle exec pod install
-```
+    **Android:**
+    ```sh
+    npm run android
+    # または
+    # yarn android
+    ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+    **iOS (macOSのみ):**
+    ```sh
+    cd ios
+    pod install
+    cd ..
+    npm run ios
+    # または
+    # yarn ios
+    ```
 
-```sh
-# Using npm
-npm run ios
+    もしビルドや実行で問題が発生した場合は、React Nativeの公式ドキュメントの[トラブルシューティング](https://reactnative.dev/docs/troubleshooting)を参照してください。
 
-# OR using Yarn
-yarn ios
-```
+## ドキュメント
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+- [開発タスク一覧 (tasks.md)](tasks.md)
+- [各種設計ドキュメント (docs/)](docs/)
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## 貢献
 
-## Step 3: Modify your app
+貢献を歓迎します！バグ報告や機能提案は、Issueを通じてお願いします。プルリクエストも歓迎です。
 
-Now that you have successfully run the app, let's make changes!
+## ライセンス
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+(TBD: プロジェクトのライセンスをここに記載します)
