@@ -29,7 +29,7 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
     await firestore().runTransaction(async (transaction) => {
       const userDoc = await transaction.get(userDocRef);
 
-      if (userDoc.exists === true && userDoc.data()?.currentLimit != null) {
+      if (userDoc.exists() && userDoc.data()?.currentLimit != null) {
         throw new Error('時間設定は初回のみ可能です。');
       }
 
@@ -39,7 +39,7 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
           currentLimit: settings.initialLimitMinutes,
           challengeId: newChallengeRef.id,
           updatedAt: firestore.FieldValue.serverTimestamp(),
-          createdAt: userDoc.exists === true ? userDoc.data()?.createdAt : firestore.FieldValue.serverTimestamp(),
+          createdAt: userDoc.exists() ? userDoc.data()?.createdAt : firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -106,6 +106,9 @@ export const requestRefund = async (userId: string, challengeId: string) => {
     // const userRef = firestore().collection('users').doc(userId);
     // await userRef.update({ challengeId: null });
 
+    // ここでユーザーデータの削除または匿名化処理を呼び出す (オプション)
+    // await deleteOrAnonymizeUserData(userId); // 将来的に実装
+
     return responseData; // 修正: responseDataを返す
   } catch (error) {
     console.error('退会・返金処理エラー:', error);
@@ -144,5 +147,26 @@ export const continueChallenge = async (userId: string, challengeId: string) => 
       throw new Error(`継続処理に失敗しました: ${error.message}`);
     }
     throw new Error('継続処理中に不明なエラーが発生しました。');
+  }
+};
+
+/**
+ * (オプション) ユーザーデータの削除または匿名化を行うCloud Functionを呼び出す（将来的な実装）。
+ * 現在はスタブとして定義。
+ * @param userId 削除/匿名化対象のユーザーID
+ */
+export const deleteOrAnonymizeUserData = async (userId: string): Promise<void> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが必要です。');
+  }
+  try {
+    console.log(`[userService] 将来的にCloud Functionを呼び出してユーザー ${userId} のデータを削除/匿名化します。`);
+    // const deleteFunction = functions().httpsCallable('deleteUserData'); // 仮の関数名
+    // await deleteFunction({ userId });
+    // console.log(`ユーザー ${userId} のデータ削除/匿名化処理を要求しました。`);
+  } catch (error) {
+    console.error(`ユーザー ${userId} のデータ削除/匿名化処理中にエラー:`, error);
+    // ここではエラーをスローせず、ログに記録するに留める（アプリのフローを止めないため）。
+    // 必要に応じてエラーハンドリング戦略を見直す。
   }
 }; 

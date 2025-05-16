@@ -85,8 +85,21 @@ TimekeeperAppは、ユーザーが設定した目標時間に基づいて日々�
 
 ## ドキュメント
 
-- [開発タスク一覧 (tasks.md)](tasks.md)
-- [各種設計ドキュメント (docs/)](docs/)
+プロジェクトに関する詳細なドキュメントは以下の通りです。
+
+- **[開発タスク一覧 (tasks.md)](tasks.md):** 現在の開発タスクと進捗状況を管理しています。
+- **[各種設計ドキュメントの目次・概要 (ドキュメント.md)](ドキュメント.md):** プロダクト要件、機能仕様、API設計、データモデルなど、主要な設計ドキュメントの概要と、`docs/`ディレクトリ内の各詳細ドキュメントへのポインタを提供します。
+- **`docs/` ディレクトリ:**
+    - `01_prd.md`: プロダクト要件定義書
+    - `02_fsd.md`: 機能仕様書
+    - `03_api_specification.md`: API仕様書
+    - `04_data_model.md`: データモデル設計書
+    - `05_ui_wireframes.md`: UIワイヤーフレーム & フロー図
+    - `06_test_plan.md`: テスト計画書
+    - `07_coding_standards_and_react_native_structure.md`: コーディング規約とReact Nativeの構成
+    - `08_firebase_architecture_and_security.md`: Firebaseアーキテクチャとセキュリティ
+
+これらのドキュメントは、開発を進める上で重要な情報源となります。適宜参照・更新してください。
 
 ## 貢献
 
@@ -94,4 +107,26 @@ TimekeeperAppは、ユーザーが設定した目標時間に基づいて日々�
 
 ## ライセンス
 
-(TBD: プロジェクトのライセンスをここに記載します)
+このプロジェクトは MIT ライセンス のもとで公開されています。詳細については、`LICENSE` ファイルを参照してください（もし存在すれば）。存在しない場合は、以下のライセンスが適用されます。
+
+MIT License
+
+Copyright (c) [year] [fullname]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

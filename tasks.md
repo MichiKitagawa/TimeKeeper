@@ -33,7 +33,7 @@
     *   [x] お支払い総額表示 (`Text`) の配置
     *   [x] 確認ボタン (`Button`) の配置
     *   [x] `src/utils/validators.ts` ファイル作成
-    *   [ ] バリデーションロジックを `DepositScreen.tsx` に組み込み
+    *   [x] バリデーションロジックを `DepositScreen.tsx` に組み込み
 7.  **Firestore `users` コレクション基本設定**
     *   [x] `docs/04_data_model.md` と `docs/08_firebase_architecture_and_security.md` に基づき、セキュリティルールを設定 (自分のデータのみ読み書き可)
 8.  **頭金登録ロジック (`depositService.ts`, `DepositScreen.tsx`)**
@@ -49,7 +49,7 @@
     *   [x] 成功後、メイン画面へ遷移
 11. **メイン画面UI実装 (`MainScreen.tsx`)**
     *   [x] FSDに基づき、残り使用時間、当日使用量プログレスバーを表示 (ダミーデータで実装)
-    *   [ ] Firestoreから `users` および `challenges` の関連データを取得・表示 (別途対応)
+    *   [x] Firestoreから `users` および `challenges` の関連データを取得・表示 (別途対応)
     *   [x] (ダミーデータで初期表示、後にFirebase連携)
 
 ## フェーズ3: 時間減少とモニタリング
@@ -91,7 +91,7 @@
 21. **退会・返金処理 (`userService.ts`, `CompletionScreen.tsx`)**
     *   [x] ユーザーが「退会」を選択した場合、上記Cloud Functionを呼び出しギフトコード取得
     *   [x] Firestoreのユーザーステータスを更新 (例: `challenges.status` を `completed_refund`)
-    *   [ ] (オプション) ユーザーデータ削除または匿名化処理
+    *   [x] (オプション) ユーザーデータ削除または匿名化処理
 22. **継続処理 (`userService.ts`, `CompletionScreen.tsx`)**
     *   [x] ユーザーが「継続」を選択した場合、新しいチャレンジ設定（再度頭金・時間設定から）へ誘導
     *   [x] Firestoreのユーザーステータスを更新 (例: `challenges.status` を `completed_continue`)
