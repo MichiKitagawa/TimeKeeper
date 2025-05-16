@@ -104,7 +104,9 @@
     *   React Native PaperなどのUIライブラリ導入検討
     *   各画面のユーザビリティ向上
 25. **単体テスト・結合テスト作成 (Jest, React Native Testing Library)**
-    *   主要コンポーネント、カスタムフック、サービス関数のテストケース作成
+    *   [x] `src/services/authService.ts`
+    *   [x] `src/utils/validators.ts`
+    *   [ ] 主要コンポーネント、カスタムフック、サービス関数のテストケース作成（残りのファイル）
 26. **E2Eテスト (Appium, Detoxなど、オプション)**
     *   主要なユーザーフローの自動テスト
 
