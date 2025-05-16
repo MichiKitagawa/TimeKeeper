@@ -61,7 +61,7 @@ const MainScreen = () => {
     const userDocRef = firestore().collection('users').doc(user.uid);
     const unsubscribe = userDocRef.onSnapshot(
       (doc) => {
-        if (doc.exists) {
+        if (doc.exists()) {
           const data = doc.data();
           setCurrentChallengeId(data?.challengeId || null);
           if (!data?.challengeId) {
@@ -96,7 +96,7 @@ const MainScreen = () => {
     const challengeDocRef = firestore().collection('challenges').doc(currentChallengeId);
     const unsubscribe = challengeDocRef.onSnapshot(
       (doc) => {
-        if (doc.exists) {
+        if (doc.exists()) {
           const data = { id: doc.id, ...doc.data() } as ChallengeData;
           setChallengeData(data);
 
@@ -235,8 +235,8 @@ const MainScreen = () => {
   return (
     <PaperProvider>
       <View style={styles.container}>
-        {/* ユーザーに分かりやすいエラー表示 (challengeIdなしエラーなど) */ 
-        {error && (error.includes('進行中のチャレンジがありません') || error.includes('ユーザーデータが見つかりません')) && 
+        {/* ユーザーに分かりやすいエラー表示 (challengeIdなしエラーなど) */}
+        {typeof error === 'string' && (error.includes('進行中のチャレンジがありません') || error.includes('ユーザーデータが見つかりません')) &&
             <Text style={styles.errorText}>{error}</Text>}
 
         <Card style={styles.card}>
