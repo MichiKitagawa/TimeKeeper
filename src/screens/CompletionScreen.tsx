@@ -29,7 +29,7 @@ const CompletionScreen = () => {
     setIsLoading(true);
     try {
       const result = await requestRefund(user.uid, challengeId);
-      Alert.alert("返金処理完了", `ギフトコード: ${result.giftCode}\n金額: ${result.amount}円\nメッセージ: ${result.message || 'なし'}`);
+      Alert.alert("返金処理受付", result.message );
       navigation.dispatch(StackActions.replace('AuthLoading'));
     } catch (error) {
       console.error("Refund error:", error);

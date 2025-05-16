@@ -74,32 +74,11 @@ export const requestRefund = async (userId: string, challengeId: string) => {
     throw new Error('ユーザーIDまたはチャレンジIDが必要です。');
   }
   try {
-    // Cloud Function を呼び出し
-    const issueGiftCard = functions().httpsCallable('issueAmazonGiftCard');
-    const result = await issueGiftCard({ userId }); // 必要に応じて他のデータも渡す
-    
-    // 期待するレスポンスの型定義
-    interface GiftCardResponse {
-      giftCode: string;
-      amount: number;
-      message?: string;
-    }
-
-    const responseData = result.data as GiftCardResponse; // 型アサーション
-
-    // 型ガードを修正
-    if (!responseData || typeof responseData.giftCode !== 'string' || typeof responseData.amount !== 'number') {
-      throw new Error('Cloud Functionからのレスポンス形式が不正です。');
-    }
-
     // チャレンジステータスを更新
     const challengeRef = firestore().collection('challenges').doc(challengeId);
     await challengeRef.update({
       status: 'completed_refund' as const,
       endDate: firestore.FieldValue.serverTimestamp(), // 完了日時を記録
-      // 必要であればギフトコード情報も保存
-      // giftCode: responseData.giftCode,
-      // refundedAmount: responseData.amount
     });
 
     // (オプション) usersコレクションのchallengeIdをクリアするなども検討
@@ -109,7 +88,7 @@ export const requestRefund = async (userId: string, challengeId: string) => {
     // ここでユーザーデータの削除または匿名化処理を呼び出す (オプション)
     // await deleteOrAnonymizeUserData(userId); // 将来的に実装
 
-    return responseData; // 修正: responseDataを返す
+    return { message: '返金処理を受け付けました。詳細は別途通知されます。' }; // 固定メッセージを返すように変更
   } catch (error) {
     console.error('退会・返金処理エラー:', error);
     if (error instanceof Error) {

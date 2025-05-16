@@ -14,7 +14,4 @@
   * `POST /api/v1/complete`
 
     * リクエスト：transactionId
-    * レスポンス：nextAction (`refund` or `continue`)
-* **Amazonギフト API 連携**
-
-  * ギフト券発行：`POST /gift-api/v1/issue` → code 
+    * レスポンス：nextAction (`refund` or `continue`) 

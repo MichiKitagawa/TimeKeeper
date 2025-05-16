@@ -127,19 +127,14 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
 *   **用途**:
     *   **定期実行処理**: 毎日1分ずつ時間を自動減少させるバッチ処理など (`onSchedule` トリガー)。
     *   **Firestoreトリガー**: Firestoreの特定ドキュメントが作成・更新・削除された際に実行する処理（例: `deposits`作成時にユーザーの`depositedAmount`を更新する、`usageLogs`作成時に`challenges`の残り時間を更新する）。
-    *   **HTTPSトリガー**: クライアントから直接呼び出すAPIエンドポイント（例: AmazonギフトAPIとの連携、複雑な決済処理）。この場合、Firebase Authenticationと連携し、IDトークンで認証・認可を行います。
+    *   **HTTPSトリガー**: クライアントから直接呼び出すAPIエンドポイント（例: 複雑な決済処理）。この場合、Firebase Authenticationと連携し、IDトークンで認証・認可を行います。
     *   **Callable Functions**: クライアントから型安全に呼び出せるHTTPSトリガーの一種。Firebase SDK経由で呼び出し、認証情報も自動的に連携されます。
 *   **言語**: Node.js (TypeScriptを推奨) または Python。
 *   **デプロイと管理**: Firebase CLIを使用してデプロイ・管理します。
 *   **セキュリティ**: Cloud Functionsの実行権限 (IAM) は最小限にします。HTTPSトリガーの場合、不正な呼び出しを防ぐために認証を必須とします。
 *   **冪等性**: 特にFirestoreトリガーやバッチ処理では、処理が複数回実行されても問題が発生しないように冪等性を考慮して設計します。
 
-## 6. AmazonギフトAPI連携
-
-*   `docs/03_api_specification.md` に記載の `POST /gift-api/v1/issue` は、直接クライアントから呼び出すのではなく、**Cloud Functions (HTTPSトリガーまたはCallable Function) を介して呼び出す**ことを強く推奨します。
-*   **理由**: APIキーなどの機密情報をクライアントに含めることを避けるため、また、サーバーサイドでリクエストの正当性チェックや流量制御を行うためです。
-*   **フロー**: クライアントアプリ → Firebase Cloud Function → AmazonギフトAPI
-*   Cloud Function内では、APIキーを環境変数として安全に管理します。
+## 6. (削除)
 
 ## 7. 全体的なセキュリティ考慮事項
 
