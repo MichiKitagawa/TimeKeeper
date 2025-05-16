@@ -113,11 +113,11 @@
     *   **Utils:**
         *   [x] `src/utils/validators.ts`
     *   **Screens:**
-        *   [ ] `src/screens/AuthLoadingScreen.tsx`
+        *   [x] `src/screens/AuthLoadingScreen.tsx`
         *   [ ] `src/screens/CompletionScreen.tsx`
         *   [ ] `src/screens/DepositScreen.tsx`
         *   [ ] `src/screens/LockScreen.tsx`
-        *   [ ] `src/screens/LoginScreen.tsx`
+        *   [x] `src/screens/LoginScreen.tsx`
         *   [ ] `src/screens/MainScreen.tsx`
         *   [ ] `src/screens/TimeSettingScreen.tsx`
     *   **Navigation:**
