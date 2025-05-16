@@ -60,10 +60,10 @@
     *   [x] `remainingDays` も更新
     *   [x] FirestoreセキュリティルールでFunctionsからの書き込みを許可
 13. **使用時間トラッキング (フォアグラウンド/バックグラウンド考慮)**
-    *   アプリ使用時間を計測するロジック (React Nativeのライフサイクルイベント、ヘッドレスJSなどを検討)
-    *   一定間隔で `usageLogs` コレクションに当日の使用時間を記録・更新
+    *   [x] アプリ使用時間を計測するロジック (React Nativeのライフサイクルイベント、ヘッドレスJSなどを検討)
+    *   [x] 一定間隔で `usageLogs` コレクションに当日の使用時間を記録・更新
 14. **メイン画面でのリアルタイム表示更新**
-    *   Firestoreのリアルタイムリスナーを使用し、`currentDailyLimitMinutes` や `usageLogs` の変更をメイン画面に反映
+    *   [x] Firestoreのリアルタイムリスナーを使用し、`currentDailyLimitMinutes` や `usageLogs` の変更をメイン画面に反映
 
 ## フェーズ4: ロックとアンロック
 
