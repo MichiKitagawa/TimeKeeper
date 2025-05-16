@@ -48,9 +48,9 @@
     *   [x] `challenges` コレクションに新しいチャレンジドキュメントを作成 (ステータス: `active`, `startDate`, `initialLimitMinutes` など)
     *   [x] 成功後、メイン画面へ遷移
 11. **メイン画面UI実装 (`MainScreen.tsx`)**
-    *   FSDに基づき、残り使用時間、当日使用量プログレスバーを表示
-    *   Firestoreから `users` および `challenges` の関連データを取得・表示
-    *   (ダミーデータで初期表示、後にFirebase連携)
+    *   [x] FSDに基づき、残り使用時間、当日使用量プログレスバーを表示 (ダミーデータで実装)
+    *   [ ] Firestoreから `users` および `challenges` の関連データを取得・表示 (別途対応)
+    *   [x] (ダミーデータで初期表示、後にFirebase連携)
 
 ## フェーズ3: 時間減少とモニタリング
 

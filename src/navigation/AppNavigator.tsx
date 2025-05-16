@@ -5,7 +5,7 @@ import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 
 import AuthLoadingScreen from '../screens/AuthLoadingScreen';
 import LoginScreen from '../screens/LoginScreen';
-import HomeScreen from '../screens/HomeScreen';
+import MainScreen from '../screens/MainScreen';
 import DepositScreen from '../screens/DepositScreen';
 import TimeSettingScreen from '../screens/TimeSettingScreen';
 
@@ -66,8 +66,8 @@ const AuthStackScreens = () => (
 
 const AppStackScreens = () => (
   <Stack.Navigator>
-    <Stack.Screen name="Home" component={HomeScreen} />
-    <Stack.Screen name="Deposit" component={DepositScreen} />
+    <Stack.Screen name="Home" component={MainScreen} options={{ title: 'メイン' }} />
+    <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '頭金入力' }} />
     <Stack.Screen name="TimeSettingScreen" component={TimeSettingScreen} options={{ title: '時間設定' }}/>
     {/* Add other app screens here */}
   </Stack.Navigator>

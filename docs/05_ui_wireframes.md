@@ -13,4 +13,10 @@
 *   UI実装済み。詳細は `src/screens/TimeSettingScreen.tsx` を参照してください。
     *   主要コンポーネント: `TextInput` (上限時間入力), `Button` (決定)
     *   入力値は1～1440分の整数でバリデーションされます。
+    *   デザインはReact Native Paperのデフォルトスタイルをベースとしています。
+
+## メイン画面 (`MainScreen.tsx`)
+
+*   UI実装済み (ダミーデータ使用)。詳細は `src/screens/MainScreen.tsx` を参照してください。
+    *   主要コンポーネント: `Card`, `Title`, `Text` (残り時間、目標時間), `ProgressBar` (使用状況), `Paragraph`
     *   デザインはReact Native Paperのデフォルトスタイルをベースとしています。 
