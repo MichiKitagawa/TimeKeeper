@@ -51,7 +51,7 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
 
 *   **ルール例 (抜粋)**:
 
-    ```
+    ```firestore
     rules_version = '2';
     service cloud.firestore {
       match /databases/{database}/documents {
@@ -60,15 +60,8 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
         match /users/{userId} {
           // 自分のドキュメントのみ読み書き可能
           allow read, write: if request.auth != null && request.auth.uid == userId;
-          // 作成時は、currentLimitフィールドが必須で数値であることなどを検証
-          allow create: if request.auth != null && request.auth.uid == userId
-                          && request.resource.data.currentLimit is number
-                          && request.resource.data.depositedAmount is number && request.resource.data.depositedAmount == 0 // 初期値
-                          && request.resource.data.createdAt == request.time; // サーバータイムスタンプを利用
-          // 更新時は特定のフィールドのみ許可、currentLimitは変更不可など
-          allow update: if request.auth != null && request.auth.uid == userId
-                          && !(request.resource.data.currentLimit != resource.data.currentLimit) // currentLimit変更不可
-                          && request.resource.data.lastLoginAt == request.time;
+          // より詳細なフィールドごとのバリデーション（作成時、更新時など）は、
+          // 各機能の実装に応じて firestore.rules ファイルに直接追加・更新します。
         }
 
         // deposits コレクション
@@ -114,7 +107,7 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
       }
     }
     ```
-    *注意: 上記はあくまで基本的な例です。実際のアプリケーションの要件に合わせてより詳細かつ厳密なルールを設定する必要があります。*
+    *注意: 上記はあくまで基本的な例です。実際のアプリケーションの要件に合わせてより詳細かつ厳密なルールを設定する必要があります。特にフィールド単位のバリデーションは、各コレクションのデータ整合性を保つために重要です。*
 
 ## 5. Firebase Cloud Functions
 

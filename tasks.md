@@ -35,7 +35,7 @@
     *   [x] `src/utils/validators.ts` ファイル作成
     *   [ ] バリデーションロジックを `DepositScreen.tsx` に組み込み
 7.  **Firestore `users` コレクション基本設定**
-    *   `docs/04_data_model.md` と `docs/08_firebase_architecture_and_security.md` に基づき、セキュリティルールを設定 (自分のデータのみ読み書き可)
+    *   [x] `docs/04_data_model.md` と `docs/08_firebase_architecture_and_security.md` に基づき、セキュリティルールを設定 (自分のデータのみ読み書き可)
 8.  **頭金登録ロジック (`depositService.ts`, `DepositScreen.tsx`)**
     *   入力値をFirestoreの `deposits` コレクションに保存 (ステータス: `pending`)
     *   (将来の決済連携を考慮し、トランザクションIDフィールドも用意)

@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // users コレクション
+    // 認証されたユーザーは、自分のユーザーIDと一致するドキュメントのみ読み書き可能
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 他のコレクションに対するルールは、必要になった時点でここに追加していきます。
+    // 例:
+    // match /deposits/{depositId} {
+    //   // ... depositsコレクションのルール ...
+    // }
+  }
+} 
