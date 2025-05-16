@@ -80,7 +80,7 @@
 ## フェーズ5: チャレンジ完了とAmazonギフトAPI連携
 
 18. **チャレンジ完了条件判定 (`MainScreen.tsx` またはバッチ処理)**
-    *   `currentDailyLimitMinutes` が0になった、または特定の日数経過で完了
+    *   [x] `currentDailyLimitMinutes` が0になった、または特定の日数経過で完了
 19. **完了画面UI実装 (`CompletionScreen.tsx`)**
     *   「退会（返金）」「継続」ボタンを配置
 20. **Cloud Functions: AmazonギフトAPI連携 (`functions/src/index.ts`)**

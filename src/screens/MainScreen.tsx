@@ -16,6 +16,9 @@ const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => {
 
 interface ChallengeData {
   currentDailyLimitMinutes: number;
+  remainingDays?: number; // 追加 (オプショナル)
+  targetDays?: number; // 追加 (オプショナル)
+  status?: string; // 既存のstatusも追加しておく (将来的な利用のため)
   // 他にも必要なフィールドがあれば追加
 }
 
@@ -93,7 +96,22 @@ const MainScreen = () => {
     const unsubscribe = challengeDocRef.onSnapshot(
       (doc) => {
         if (doc.exists) {
-          setChallengeData(doc.data() as ChallengeData);
+          const data = doc.data() as ChallengeData;
+          setChallengeData(data);
+
+          // チャレンジ完了条件の判定
+          if (data && data.status === 'active') { // 'active' のチャレンジのみ判定
+            const isCompletedByTime = data.currentDailyLimitMinutes <= 0;
+            const isCompletedByDays = data.remainingDays != null && data.remainingDays <= 0;
+
+            if (isCompletedByTime || isCompletedByDays) {
+              console.log('Challenge completed! Navigating to CompletionScreen.');
+              // Firestoreのチャレンジステータスを更新する処理もここ、またはCompletionScreenで行うことを検討
+              // ここではまず画面遷移のみ行う
+              navigation.dispatch(StackActions.replace('CompletionScreen'));
+              return; // 遷移後は以降の処理を行わない
+            }
+          }
           // setError(null); // 他のエラーを上書きしないように注意
         } else {
           setError((prevError) => prevError || '有効なチャレンジデータが見つかりません。');
@@ -149,7 +167,8 @@ const MainScreen = () => {
 
   // 4. ロック条件の判定と dailyLimitReached の更新、画面遷移
   useEffect(() => {
-    if (user && challengeData && usageLogData) {
+    // チャレンジ完了判定が優先されるため、challengeDataがnullの場合やstatusがactiveでない場合はロック判定に進まない可能性を考慮
+    if (user && challengeData && challengeData.status === 'active' && usageLogData) {
       const dailyLimit = challengeData.currentDailyLimitMinutes || 0;
       const used = usageLogData.usedMinutes || 0;
 
@@ -217,7 +236,7 @@ const MainScreen = () => {
   return (
     <PaperProvider>
       <View style={styles.container}>
-        {/* ユーザーに分かりやすいエラー表示 (challengeIdなしエラーなど) */} 
+        {/* ユーザーに分かりやすいエラー表示 (challengeIdなしエラーなど) */ 
         {error && (error.includes('進行中のチャレンジがありません') || error.includes('ユーザーデータが見つかりません')) && 
             <Text style={styles.errorText}>{error}</Text>}
 
