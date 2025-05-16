@@ -45,8 +45,35 @@ service cloud.firestore {
                       && request.resource.data.status == 'active'
                       && request.resource.data.startDate == request.time;
                       // currentDailyLimitMinutes と remainingDays はCloud Functionsが設定するため、ここでは検証しない
-      // 更新・削除は現時点では許可しない (Cloud Functionsからの更新は別途考慮)
-      allow update, delete: if false;
+      // Cloud Functionsからの更新を許可 (currentDailyLimitMinutes, remainingDays, status, endDate のみ)
+      // ユーザー自身による status や endDate の安易な変更を防ぎつつ、Functions に更新を許可する
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId
+                    // ユーザーはステータスを completed_refund または completed_continue にのみ変更可能 (完了時)
+                    && request.resource.data.status != resource.data.status
+                    && (request.resource.data.status == 'completed_refund' || request.resource.data.status == 'completed_continue')
+                    && resource.data.status == 'active' // active からの変更のみ
+                    && onlyAllowFields(request.resource.data, resource.data, ['status', 'endDate']) // 他のフィールド変更不可
+                 || (// Cloud Functions (admin SDK) からのアクセスは request.auth が null になる
+                     request.auth == null &&
+                     // 更新されるフィールドを制限する
+                     onlyAllowFields(request.resource.data, resource.data, ['currentDailyLimitMinutes', 'remainingDays', 'status', 'endDate']) &&
+                     request.resource.data.currentDailyLimitMinutes is number && request.resource.data.currentDailyLimitMinutes >= 0 &&
+                     (request.resource.data.remainingDays is number && request.resource.data.remainingDays >= 0 || request.resource.data.remainingDays == null) &&
+                     (request.resource.data.status is string || request.resource.data.status == null) &&
+                     (request.resource.data.endDate is timestamp || request.resource.data.endDate == null)
+                    );
+
+      allow delete: if false; // 通常ユーザーによる削除は許可しない
+
+      // 更新時に許可するフィールドをチェックするヘルパー関数
+      function onlyAllowFields(requestData, resourceData, allowedFields) {
+        let incomingKeys = requestData.keys();
+        let currentKeys = resourceData.keys();
+        // 許可されたフィールド以外の既存フィールドが変更されていないか
+        // 許可されたフィールド以外の新しいフィールドが追加されていないか
+        return incomingKeys.hasOnly(currentKeys.concat(allowedFields)) &&
+               requestData.diff(resourceData).affectedKeys().hasOnly(allowedFields);
+      }
     }
 
     // 他のコレクションに対するルールは、必要になった時点でここに追加していきます。

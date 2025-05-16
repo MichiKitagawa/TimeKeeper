@@ -55,10 +55,10 @@
 ## フェーズ3: 時間減少とモニタリング
 
 12. **Cloud Functions: 時間自動減少バッチ処理 (`functions/src/index.ts`)**
-    *   `onSchedule` トリガーで毎日定刻に実行
-    *   全アクティブユーザーの `challenges` ドキュメントの `currentDailyLimitMinutes` を1分ずつ減少 (0未満にならないように)
-    *   `remainingDays` も更新
-    *   FirestoreセキュリティルールでFunctionsからの書き込みを許可
+    *   [x] `onSchedule` トリガーで毎日定刻に実行
+    *   [x] 全アクティブユーザーの `challenges` ドキュメントの `currentDailyLimitMinutes` を1分ずつ減少 (0未満にならないように)
+    *   [x] `remainingDays` も更新
+    *   [x] FirestoreセキュリティルールでFunctionsからの書き込みを許可
 13. **使用時間トラッキング (フォアグラウンド/バックグラウンド考慮)**
     *   アプリ使用時間を計測するロジック (React Nativeのライフサイクルイベント、ヘッドレスJSなどを検討)
     *   一定間隔で `usageLogs` コレクションに当日の使用時間を記録・更新
