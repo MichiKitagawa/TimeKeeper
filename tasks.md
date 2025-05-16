@@ -44,9 +44,9 @@
     *   [x] FSDに基づき、上限時間入力フィールドを配置 (1-1440分)
     *   [x] バリデーションルール実装
 10. **時間設定ロジック (`userService.ts`, `TimeSettingScreen.tsx`)**
-    *   設定時間をFirestoreの `users/{userId}` ドキュメントの `currentLimit` に保存 (初回のみ設定可とするロジックを検討)
-    *   `challenges` コレクションに新しいチャレンジドキュメントを作成 (ステータス: `active`, `startDate`, `initialLimitMinutes` など)
-    *   成功後、メイン画面へ遷移
+    *   [x] 設定時間をFirestoreの `users/{userId}` ドキュメントの `currentLimit` に保存 (初回のみ設定可とするロジックを実装)
+    *   [x] `challenges` コレクションに新しいチャレンジドキュメントを作成 (ステータス: `active`, `startDate`, `initialLimitMinutes` など)
+    *   [x] 成功後、メイン画面へ遷移
 11. **メイン画面UI実装 (`MainScreen.tsx`)**
     *   FSDに基づき、残り使用時間、当日使用量プログレスバーを表示
     *   Firestoreから `users` および `challenges` の関連データを取得・表示

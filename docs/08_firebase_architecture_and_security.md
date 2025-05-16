@@ -58,10 +58,18 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
 
         // users コレクション
         match /users/{userId} {
-          // 自分のドキュメントのみ読み書き可能
-          allow read, write: if request.auth != null && request.auth.uid == userId;
-          // より詳細なフィールドごとのバリデーション（作成時、更新時など）は、
-          // 各機能の実装に応じて firestore.rules ファイルに直接追加・更新します。
+          allow read: if request.auth != null && request.auth.uid == userId;
+          // ドキュメント作成時、または currentLimit がまだ存在しない場合に限り currentLimit を書き込み可
+          // challengeId はいつでも更新可
+          allow write: if request.auth != null && request.auth.uid == userId
+                       && (request.resource.data.currentLimit is number && (!exists(/databases/$(database)/documents/users/$(userId)) || !('currentLimit' in resource.data) || resource.data.currentLimit == null)
+                           || !(request.resource.data.currentLimit != resource.data.currentLimit) // currentLimitの変更を通常は許可しない
+                          )
+                       && (request.resource.data.challengeId is string || request.resource.data.challengeId == null);
+           // usersドキュメント作成時のより詳細なルール (必要であれば)
+           // allow create: if request.auth != null && request.auth.uid == userId && ... ;
+           // usersドキュメント更新時のより詳細なルール (上記writeでカバーしきれない場合)
+           // allow update: if request.auth != null && request.auth.uid == userId && ... ;
         }
 
         // deposits コレクション
@@ -95,13 +103,14 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
         // challenges コレクション
         match /challenges/{challengeId} {
             allow read: if request.auth != null && request.auth.uid == resource.data.userId;
-            allow create: if request.auth != null && request.auth.uid == request.resource.data.userId
-                            // 作成時のバリデーション (initialLimitMinutes, startDateなど)
-                            && request.resource.data.initialLimitMinutes is number
-                            && request.resource.data.status == 'active';
-            // 更新はCloud Functions (例: remainingDays, currentDailyLimitMinutesの更新) と
-            // ユーザー自身による状態変更 (例: completed_refund) を分けて定義
-            // allow update: if (/* Cloud Functionからの更新条件 */) || (request.auth.uid == resource.data.userId && /* ユーザーによる更新条件 */);
+            allow create: if request.auth != null
+                            && request.auth.uid == request.resource.data.userId
+                            && request.resource.data.initialLimitMinutes is number && request.resource.data.initialLimitMinutes > 0 && request.resource.data.initialLimitMinutes <= 1440
+                            && request.resource.data.status == 'active'
+                            && request.resource.data.startDate == request.time;
+                            // currentDailyLimitMinutes と remainingDays はCloud Functionsが設定するため、ここでは検証しない
+            // 更新・削除は現時点では許可しない (Cloud Functionsからの更新は別途考慮)
+            allow update, delete: if false;
         }
 
         // ルールのヘルパー関数 (例)

@@ -4,7 +4,18 @@ service cloud.firestore {
     // users コレクション
     // 認証されたユーザーは、自分のユーザーIDと一致するドキュメントのみ読み書き可能
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // ドキュメント作成時、または currentLimit がまだ存在しない場合に限り currentLimit を書き込み可
+      // challengeId はいつでも更新可
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && (request.resource.data.currentLimit is number && (!exists(/databases/$(database)/documents/users/$(userId)) || !('currentLimit' in resource.data) || resource.data.currentLimit == null)
+                       || !(request.resource.data.currentLimit != resource.data.currentLimit) // currentLimitの変更を通常は許可しない
+                      )
+                   && (request.resource.data.challengeId is string || request.resource.data.challengeId == null);
+       // usersドキュメント作成時のより詳細なルール (必要であれば)
+       // allow create: if request.auth != null && request.auth.uid == userId && ... ;
+       // usersドキュメント更新時のより詳細なルール (上記writeでカバーしきれない場合)
+       // allow update: if request.auth != null && request.auth.uid == userId && ... ;
     }
 
     // deposits コレクション
@@ -22,6 +33,19 @@ service cloud.firestore {
                       && request.resource.data.updatedAt == request.time
                       && (request.resource.data.transactionId == null || request.resource.data.transactionId is string);
       // 更新と削除は現時点では許可しない (必要に応じて変更)
+      allow update, delete: if false;
+    }
+
+    // challenges コレクション
+    match /challenges/{challengeId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null
+                      && request.auth.uid == request.resource.data.userId
+                      && request.resource.data.initialLimitMinutes is number && request.resource.data.initialLimitMinutes > 0 && request.resource.data.initialLimitMinutes <= 1440
+                      && request.resource.data.status == 'active'
+                      && request.resource.data.startDate == request.time;
+                      // currentDailyLimitMinutes と remainingDays はCloud Functionsが設定するため、ここでは検証しない
+      // 更新・削除は現時点では許可しない (Cloud Functionsからの更新は別途考慮)
       allow update, delete: if false;
     }
 

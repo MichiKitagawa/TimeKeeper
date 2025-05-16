@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { TextInput, Button, Text, HelperText, Provider as PaperProvider } from 'react-native-paper';
-// import { useNavigation } from '@react-navigation/native'; // 次のタスクで使用
-// import type { StackNavigationProp } from '@react-navigation/stack'; // 次のタスクで使用
+import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
 import { validateTimeLimit } from '../utils/validators';
+import { setUserInitialTimeLimitAndCreateChallenge, UserTimeSettings } from '../services/userService';
+import type { AppStackParamList } from '../navigation/AppNavigator';
 
 // 仮のナビゲーションパラメータリスト（実際のAppStackに合わせて調整が必要）
 // type RootStackParamList = {
@@ -13,26 +15,47 @@ import { validateTimeLimit } from '../utils/validators';
 // };
 
 const TimeSettingScreen = () => {
-  // const navigation = useNavigation<StackNavigationProp<RootStackParamList>>(); // 次のタスクで使用
+  const navigation = useNavigation<StackNavigationProp<AppStackParamList, 'TimeSettingScreen'>>();
   const [timeLimit, setTimeLimit] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false); // 次のタスクで使用
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleTimeLimitChange = (text: string) => {
     setTimeLimit(text);
-    setError(validateTimeLimit(text));
+    if (text === '') { // 入力が空になったらエラーも消す
+      setError(null);
+    } else {
+      setError(validateTimeLimit(text));
+    }
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     const validationError = validateTimeLimit(timeLimit);
     if (validationError) {
       setError(validationError);
       Alert.alert('入力エラー', validationError);
       return;
     }
-    // 次のタスクでFirestoreへの保存処理と画面遷移を実装
-    console.log('設定時間:', parseInt(timeLimit, 10));
-    Alert.alert('設定仮保存', `上限時間を ${timeLimit} 分に設定しました。（実際にはまだ保存されていません）`);
+    if (!timeLimit) { // timeLimitが空の場合の追加チェック
+        Alert.alert('入力エラー', '上限時間を入力してください。');
+        return;
+    }
+
+    setIsLoading(true);
+    try {
+      const settings: UserTimeSettings = {
+        initialLimitMinutes: parseInt(timeLimit, 10),
+      };
+      await setUserInitialTimeLimitAndCreateChallenge(settings);
+      Alert.alert('設定完了', '時間の初期設定が完了しました。メイン画面に進みます。');
+      // メイン画面に遷移。HomeScreenはAppStackParamListで定義されている想定
+      navigation.navigate('Home'); 
+    } catch (e: any) {
+      console.error('時間設定保存エラー:', e);
+      Alert.alert('エラー', e.message || '時間設定の保存に失敗しました。');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -60,7 +83,7 @@ const TimeSettingScreen = () => {
           style={styles.button}
           disabled={!!error || isLoading || !timeLimit}
         >
-          決定して進む
+          {isLoading ? '処理中...' : '決定して進む'}
         </Button>
       </View>
     </PaperProvider>
