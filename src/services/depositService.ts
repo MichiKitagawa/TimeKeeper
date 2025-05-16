@@ -21,37 +21,45 @@ const FIXED_PAYMENT_AMOUNT = 5000; // 固定利用料
  */
 export const processPayment = async (): Promise<string> => {
   const currentUser = auth().currentUser;
-  if (!currentUser) {
+  if (!currentUser || !currentUser.uid) {
     throw new Error('ユーザーが認証されていません。ログインしてください。');
   }
   const userId = currentUser.uid;
-  const paymentDocRef = firestore().collection('payments').doc(); // 新しい支払いドキュメント参照
-  const userDocRef = firestore().collection('users').doc(userId);
 
   try {
-    await firestore().runTransaction(async (transaction) => {
-      // 1. paymentsコレクションに支払い記録を作成
-      const paymentPayload: Omit<PaymentData, 'userId'> & { userId: string } = { // PaymentDataに合わせる
+    const paymentId = await firestore().runTransaction(async (transaction) => {
+      const paymentDocRef = firestore().collection('payments').doc(); 
+      const userDocRef = firestore().collection('users').doc(userId);
+
+      const fixedPaymentAmount = 5000;
+      const transactionId = `mock_tx_${Date.now()}`;
+
+      const paymentPayload = {
+        id: paymentDocRef.id, 
         userId: userId,
-        amount: FIXED_PAYMENT_AMOUNT,
+        amount: fixedPaymentAmount,
         paymentDate: FirebaseFirestoreTypes.FieldValue.serverTimestamp(),
-        status: 'completed', // Mockなので即時完了
-        transactionId: `mock_tx_${Date.now()}`,
+        status: 'completed', 
+        transactionId: transactionId, 
         createdAt: FirebaseFirestoreTypes.FieldValue.serverTimestamp(),
         updatedAt: FirebaseFirestoreTypes.FieldValue.serverTimestamp(),
       };
-      transaction.set(paymentDocRef, paymentPayload);
+      transaction.set(paymentDocRef, paymentPayload as FirebaseFirestoreTypes.DocumentData);
 
-      // 2. usersコレクションの支払い情報を更新
-      transaction.update(userDocRef, {
+      const userUpdatePayload = {
         paymentStatus: 'paid',
         paymentId: paymentDocRef.id,
-        lastActiveDate: FirebaseFirestoreTypes.FieldValue.serverTimestamp(), // 支払い時を最終アクティブとする
+        lastActiveDate: FirebaseFirestoreTypes.FieldValue.serverTimestamp(),
         updatedAt: FirebaseFirestoreTypes.FieldValue.serverTimestamp(),
-      });
+      };
+      transaction.update(userDocRef, userUpdatePayload);
+      
+      return paymentDocRef.id;
     });
-    console.log(`ユーザー ${userId} の利用料支払い処理が完了しました。PaymentID: ${paymentDocRef.id}`);
-    return paymentDocRef.id;
+
+    console.log(`ユーザー ${userId} の利用料支払い処理が完了しました。PaymentID: ${paymentId}`);
+    return paymentId; 
+
   } catch (error) {
     console.error('利用料支払い処理エラー:', error);
     if (error instanceof Error) {
