@@ -82,19 +82,19 @@
 18. **チャレンジ完了条件判定 (`MainScreen.tsx` またはバッチ処理)**
     *   [x] `currentDailyLimitMinutes` が0になった、または特定の日数経過で完了
 19. **完了画面UI実装 (`CompletionScreen.tsx`)**
-    *   「退会（返金）」「継続」ボタンを配置
+    *   [x] 「退会（返金）」「継続」ボタンを配置
 20. **Cloud Functions: AmazonギフトAPI連携 (`functions/src/index.ts`)**
-    *   HTTPS Callable Functionとして実装
-    *   クライアントからリクエストを受け、AmazonギフトAPIにギフト券発行をリクエスト
-    *   APIキーはFunctionsの環境変数で管理
-    *   発行されたギフトコードをクライアントに返す
+    *   [x] HTTPS Callable Functionとして実装
+    *   [x] クライアントからリクエストを受け、AmazonギフトAPIにギフト券発行をリクエスト
+    *   [x] APIキーはFunctionsの環境変数で管理
+    *   [x] 発行されたギフトコードをクライアントに返す
 21. **退会・返金処理 (`userService.ts`, `CompletionScreen.tsx`)**
-    *   ユーザーが「退会」を選択した場合、上記Cloud Functionを呼び出しギフトコード取得
-    *   Firestoreのユーザーステータスを更新 (例: `challenges.status` を `completed_refund`)
-    *   (オプション) ユーザーデータ削除または匿名化処理
+    *   [x] ユーザーが「退会」を選択した場合、上記Cloud Functionを呼び出しギフトコード取得
+    *   [x] Firestoreのユーザーステータスを更新 (例: `challenges.status` を `completed_refund`)
+    *   [ ] (オプション) ユーザーデータ削除または匿名化処理
 22. **継続処理 (`userService.ts`, `CompletionScreen.tsx`)**
-    *   ユーザーが「継続」を選択した場合、新しいチャレンジ設定（再度頭金・時間設定から）へ誘導
-    *   Firestoreのユーザーステータスを更新 (例: `challenges.status` を `completed_continue`)
+    *   [x] ユーザーが「継続」を選択した場合、新しいチャレンジ設定（再度頭金・時間設定から）へ誘導
+    *   [x] Firestoreのユーザーステータスを更新 (例: `challenges.status` を `completed_continue`)
 
 ## フェーズ6: UI改善とテスト
 

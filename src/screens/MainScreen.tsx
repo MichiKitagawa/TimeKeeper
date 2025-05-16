@@ -15,6 +15,7 @@ const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => {
 };
 
 interface ChallengeData {
+  id: string;
   currentDailyLimitMinutes: number;
   remainingDays?: number; // 追加 (オプショナル)
   targetDays?: number; // 追加 (オプショナル)
@@ -96,7 +97,7 @@ const MainScreen = () => {
     const unsubscribe = challengeDocRef.onSnapshot(
       (doc) => {
         if (doc.exists) {
-          const data = doc.data() as ChallengeData;
+          const data = { id: doc.id, ...doc.data() } as ChallengeData;
           setChallengeData(data);
 
           // チャレンジ完了条件の判定
@@ -106,9 +107,7 @@ const MainScreen = () => {
 
             if (isCompletedByTime || isCompletedByDays) {
               console.log('Challenge completed! Navigating to CompletionScreen.');
-              // Firestoreのチャレンジステータスを更新する処理もここ、またはCompletionScreenで行うことを検討
-              // ここではまず画面遷移のみ行う
-              navigation.dispatch(StackActions.replace('CompletionScreen'));
+              navigation.dispatch(StackActions.replace('CompletionScreen', { challengeId: data.id }));
               return; // 遷移後は以降の処理を行わない
             }
           }
