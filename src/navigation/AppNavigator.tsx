@@ -8,12 +8,14 @@ import LoginScreen from '../screens/LoginScreen';
 import MainScreen from '../screens/MainScreen';
 import DepositScreen from '../screens/DepositScreen';
 import TimeSettingScreen from '../screens/TimeSettingScreen';
+import LockScreen from '../screens/LockScreen';
 
 // ナビゲーションパラメータリスト
 export type AppStackParamList = {
   Home: undefined;
   Deposit: undefined;
   TimeSettingScreen: undefined;
+  LockScreen: undefined;
   // 他のApp内スクリーンもここに追加
 };
 
@@ -69,6 +71,7 @@ const AppStackScreens = () => (
     <Stack.Screen name="Home" component={MainScreen} options={{ title: 'メイン' }} />
     <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '頭金入力' }} />
     <Stack.Screen name="TimeSettingScreen" component={TimeSettingScreen} options={{ title: '時間設定' }}/>
+    <Stack.Screen name="LockScreen" component={LockScreen} options={{ title: 'ロック中', headerShown: false }} />
     {/* Add other app screens here */}
   </Stack.Navigator>
 );

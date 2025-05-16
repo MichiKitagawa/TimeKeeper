@@ -3,7 +3,9 @@ import { View, StyleSheet } from 'react-native'; // AppStateは MainScreen で�
 import { Text, ProgressBar, Provider as PaperProvider, Card, Title, Paragraph, ActivityIndicator } from 'react-native-paper';
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { useAuth } from '../navigation/AppNavigator';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, StackActions } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { AppStackParamList } from '../navigation/AppNavigator';
 
 // 今日の日付の0時0分0秒(UTC)を取得するヘルパー (usageTrackingServiceから拝借)
 const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => {
@@ -23,9 +25,15 @@ interface UsageLogData {
   // 他にも必要なフィールドがあれば追加
 }
 
+// NavigationPropの型を定義
+type MainScreenNavigationProp = StackNavigationProp<
+  AppStackParamList,
+  'Home'
+>;
+
 const MainScreen = () => {
   const { user } = useAuth();
-  const navigation = useNavigation(); // StackActions.replace はまだなのでコメントアウト
+  const navigation = useNavigation<MainScreenNavigationProp>();
 
   const [currentChallengeId, setCurrentChallengeId] = useState<string | null>(null);
   const [challengeData, setChallengeData] = useState<ChallengeData | null>(null);
@@ -139,14 +147,15 @@ const MainScreen = () => {
     return unsubscribe; // クリーンアップ関数を返す
   }, [user]);
 
-  // 4. ロック条件の判定と dailyLimitReached の更新
+  // 4. ロック条件の判定と dailyLimitReached の更新、画面遷移
   useEffect(() => {
     if (user && challengeData && usageLogData) {
       const dailyLimit = challengeData.currentDailyLimitMinutes || 0;
       const used = usageLogData.usedMinutes || 0;
 
+      // dailyLimit が 0 より大きく、使用時間が上限を超え、まだロックされていない場合
       if (used >= dailyLimit && dailyLimit > 0 && !usageLogData.dailyLimitReached) {
-        console.log('Lock condition met! Consider navigating to LockScreen.');
+        console.log('Lock condition met! Navigating to LockScreen.');
         const todayTimestamp = getTodayUtcTimestamp();
         const usageLogDocQuery = firestore()
           .collection('usageLogs')
@@ -156,11 +165,31 @@ const MainScreen = () => {
         
         usageLogDocQuery.get().then(snapshot => {
           if (!snapshot.empty) {
-            snapshot.docs[0].ref.update({ dailyLimitReached: true })
+            const docRef = snapshot.docs[0].ref;
+            docRef.update({ dailyLimitReached: true })
+              .then(() => {
+                navigation.dispatch(StackActions.replace('LockScreen')); // LockScreenへ遷移
+              })
               .catch(err => console.error("Failed to update dailyLimitReached: ", err));
+          } else {
+            // usageLogドキュメントが存在しない場合 (理論上はusageLogData取得時に作成されるはずだが念のため)
+            // 必要であればここで作成し、dailyLimitReachedをtrueにしてから遷移
+            console.warn("UsageLog document not found when trying to set dailyLimitReached. Navigating anyway.");
+            navigation.dispatch(StackActions.replace('LockScreen'));
           }
-        }).catch(err => console.error("Failed to query for usageLog to update dailyLimitReached: ", err));
-        // navigation.dispatch(StackActions.replace('LockScreen')); // 次のタスクで実装
+        }).catch(err => {
+            console.error("Failed to query for usageLog to update dailyLimitReached: ", err);
+            // クエリ失敗時もロック画面へフォールバックする可能性があるが、エラーをログに出力して通知
+            navigation.dispatch(StackActions.replace('LockScreen'));
+        });
+      } else if (usageLogData.dailyLimitReached) {
+        // 既に dailyLimitReached が true の場合は、直接LockScreenへ (例: アプリ再起動時など)
+        console.log('Daily limit already reached, navigating to LockScreen if not already there.');
+        // 現在のルートがLockScreenでないことを確認してから遷移 (無限ループ防止)
+        const currentRoute = navigation.getState()?.routes[navigation.getState().index]?.name;
+        if (currentRoute !== 'LockScreen') {
+            navigation.dispatch(StackActions.replace('LockScreen'));
+        }
       }
     }
   }, [user, challengeData, usageLogData, navigation]);

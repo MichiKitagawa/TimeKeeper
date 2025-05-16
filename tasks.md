@@ -68,7 +68,7 @@
 ## フェーズ4: ロックとアンロック
 
 15. **ロック条件判定とロック画面表示 (`MainScreen.tsx`, `LockScreen.tsx`)**
-    *   当日使用時間が `currentDailyLimitMinutes` を超えたらロック画面を表示
+    *   [x] 当日使用時間が `currentDailyLimitMinutes` を超えたらロック画面を表示
 16. **ロック画面UI実装 (`LockScreen.tsx`)**
     *   「アンロック」「退出」ボタンを配置
     *   アンロック料金の表示 (初期200円、以降前回×1.2倍)
