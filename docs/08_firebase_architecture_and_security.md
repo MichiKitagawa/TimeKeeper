@@ -66,16 +66,20 @@ Firebase Firestoreのセキュリティルールは、データベースへの�
 
         // deposits コレクション
         match /deposits/{depositId} {
-          // 自分のデポジット情報のみ読み取り可能
-          allow read: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userId == resource.data.userId; // userIdが自分のものであることを確認
-          // デポジット作成は認証ユーザーのみ可能、必須フィールドの検証
-          allow create: if request.auth != null && request.auth.uid == request.resource.data.userId
+          // 認証されたユーザーは、自分のuserIdを持つドキュメントを読み取り可能
+          allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+          // 認証されたユーザーは、自分のuserIdで、指定された条件でドキュメントを作成可能
+          allow create: if request.auth != null
+                          && request.auth.uid == request.resource.data.userId
                           && request.resource.data.refundAmount is number && request.resource.data.refundAmount > 0
                           && request.resource.data.feeRate is number && request.resource.data.feeRate >= 0 && request.resource.data.feeRate < 1
+                          && request.resource.data.chargedAmount is number && request.resource.data.chargedAmount >= request.resource.data.refundAmount
                           && request.resource.data.status == 'pending'
-                          && request.resource.data.createdAt == request.time;
-          // 更新はCloud Functionsからのみ（例：ステータス変更）などを想定する場合は制限
-          // allow update: if false; // 原則クライアントからは更新不可とし、Functions経由にするなど
+                          && request.resource.data.createdAt == request.time
+                          && request.resource.data.updatedAt == request.time
+                          && (request.resource.data.transactionId == null || request.resource.data.transactionId is string);
+          // 更新と削除は現時点では許可しない (必要に応じて変更)
+          allow update, delete: if false;
         }
 
         // usageLogs コレクション

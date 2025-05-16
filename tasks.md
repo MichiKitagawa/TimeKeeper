@@ -37,9 +37,9 @@
 7.  **Firestore `users` コレクション基本設定**
     *   [x] `docs/04_data_model.md` と `docs/08_firebase_architecture_and_security.md` に基づき、セキュリティルールを設定 (自分のデータのみ読み書き可)
 8.  **頭金登録ロジック (`depositService.ts`, `DepositScreen.tsx`)**
-    *   入力値をFirestoreの `deposits` コレクションに保存 (ステータス: `pending`)
-    *   (将来の決済連携を考慮し、トランザクションIDフィールドも用意)
-    *   成功後、時間設定画面へ遷移
+    *   [x] 入力値をFirestoreの `deposits` コレクションに保存 (ステータス: `pending`)
+    *   [x] (将来の決済連携を考慮し、トランザクションIDフィールドも用意)
+    *   [x] 成功後、時間設定画面へ遷移
 9.  **時間設定画面UI実装 (`TimeSettingScreen.tsx`)**
     *   FSDに基づき、上限時間入力フィールドを配置 (1-1440分)
     *   バリデーションルール実装

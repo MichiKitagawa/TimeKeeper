@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Alert } from 'react-native';
 import { TextInput, Button, Text, Provider as PaperProvider, Menu } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack'; // 型をインポート
+import { saveDeposit, DepositData } from '../services/depositService';
+
+// 仮のナビゲーションパラメータリスト（実際のAppStackに合わせて調整が必要）
+type RootStackParamList = {
+  Deposit: undefined; // 現在の画面
+  TimeSettingScreen: undefined; // 遷移先の画面
+  // 他の画面もここに追加
+};
 
 // 仮の券種データ
 const voucherOptions = [
@@ -11,10 +21,12 @@ const voucherOptions = [
 ];
 
 const DepositScreen = () => {
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>(); // 型適用
   const [refundAmount, setRefundAmount] = useState<string>('');
   const [selectedVoucher, setSelectedVoucher] = useState<number | undefined>(undefined);
   const [feeRate] = useState<number>(0.1); // 仮の手数料率 10%
   const [menuVisible, setMenuVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); // ローディング状態を追加
 
   const openMenu = () => setMenuVisible(true);
   const closeMenu = () => setMenuVisible(false);
@@ -27,6 +39,29 @@ const DepositScreen = () => {
 
   const calculatedFee = selectedVoucher ? selectedVoucher * feeRate : 0;
   const totalAmount = selectedVoucher ? selectedVoucher + calculatedFee : 0;
+
+  const handleConfirmDeposit = async () => {
+    if (!selectedVoucher) {
+      Alert.alert('選択エラー', '券種を選択してください。');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const depositData: DepositData = {
+        refundAmount: selectedVoucher, // selectedVoucherが返金希望額そのもの
+        feeRate: feeRate,
+        chargedAmount: totalAmount,
+      };
+      await saveDeposit(depositData);
+      Alert.alert('登録完了', '頭金の情報を登録しました。時間設定に進みます。');
+      navigation.navigate('TimeSettingScreen'); // 仮のスクリーン名
+    } catch (error: any) {
+      console.error('頭金登録エラー:', error);
+      Alert.alert('登録エラー', error.message || '頭金の登録に失敗しました。しばらくしてから再度お試しください。');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <PaperProvider>
@@ -60,8 +95,14 @@ const DepositScreen = () => {
         <Text style={styles.text}>手数料: {calculatedFee}円</Text>
         <Text style={styles.text}>お支払い総額: {totalAmount}円</Text>
 
-        <Button mode="contained" onPress={() => console.log('Confirm Deposit')} style={styles.button}>
-          確認して進む
+        <Button 
+          mode="contained" 
+          onPress={handleConfirmDeposit} 
+          style={styles.button}
+          disabled={isLoading} // ローディング中は無効化
+          loading={isLoading}  // ローディング表示
+        >
+          {isLoading ? '処理中...' : '確認して進む'}
         </Button>
       </View>
     </PaperProvider>

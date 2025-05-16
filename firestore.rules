@@ -7,6 +7,24 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // deposits コレクション
+    match /deposits/{depositId} {
+      // 認証されたユーザーは、自分のuserIdを持つドキュメントを読み取り可能
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // 認証されたユーザーは、自分のuserIdで、指定された条件でドキュメントを作成可能
+      allow create: if request.auth != null
+                      && request.auth.uid == request.resource.data.userId
+                      && request.resource.data.refundAmount is number && request.resource.data.refundAmount > 0
+                      && request.resource.data.feeRate is number && request.resource.data.feeRate >= 0 && request.resource.data.feeRate < 1
+                      && request.resource.data.chargedAmount is number && request.resource.data.chargedAmount >= request.resource.data.refundAmount
+                      && request.resource.data.status == 'pending'
+                      && request.resource.data.createdAt == request.time
+                      && request.resource.data.updatedAt == request.time
+                      && (request.resource.data.transactionId == null || request.resource.data.transactionId is string);
+      // 更新と削除は現時点では許可しない (必要に応じて変更)
+      allow update, delete: if false;
+    }
+
     // 他のコレクションに対するルールは、必要になった時点でここに追加していきます。
     // 例:
     // match /deposits/{depositId} {

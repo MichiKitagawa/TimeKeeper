@@ -22,13 +22,13 @@ Firebase Firestoreをデータベースとして使用します。以下は主�
 *   ドキュメントID: 自動生成ID
 *   **フィールド**:
     *   `userId`: String (Firebase AuthenticationのユーザーUID、`users`コレクションへの参照)
-    *   `refundAmount`: Number (ユーザーが設定した返金希望額)
+    *   `refundAmount`: Number (ユーザーが選択した券種額に基づく返金希望額)
     *   `feeRate`: Number (手数料率、例: 0.1)
     *   `chargedAmount`: Number (実際に課金/デポジットされた額、手数料込み)
-    *   `status`: String (`pending`, `completed`, `failed`, `refunded` など)
-    *   `createdAt`: Timestamp (デポジット処理開始日時)
-    *   `updatedAt`: Timestamp (ステータス更新日時)
-    *   `transactionId`: String (決済システム側のトランザクションID、任意)
+    *   `status`: String (`pending`, `completed`, `failed`, `refunded` など。初期値は `pending`)
+    *   `createdAt`: Timestamp (デポジット処理ドキュメント作成日時、Firestoreサーバータイムスタンプを使用)
+    *   `updatedAt`: Timestamp (ステータス等更新日時、Firestoreサーバータイムスタンプを使用)
+    *   `transactionId`: String | null (決済システム側のトランザクションID、任意。初期値は `null`)
 
 ### `usageLogs` コレクション
 
