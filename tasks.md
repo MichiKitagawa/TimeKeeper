@@ -41,8 +41,8 @@
     *   [x] (将来の決済連携を考慮し、トランザクションIDフィールドも用意)
     *   [x] 成功後、時間設定画面へ遷移
 9.  **時間設定画面UI実装 (`TimeSettingScreen.tsx`)**
-    *   FSDに基づき、上限時間入力フィールドを配置 (1-1440分)
-    *   バリデーションルール実装
+    *   [x] FSDに基づき、上限時間入力フィールドを配置 (1-1440分)
+    *   [x] バリデーションルール実装
 10. **時間設定ロジック (`userService.ts`, `TimeSettingScreen.tsx`)**
     *   設定時間をFirestoreの `users/{userId}` ドキュメントの `currentLimit` に保存 (初回のみ設定可とするロジックを検討)
     *   `challenges` コレクションに新しいチャレンジドキュメントを作成 (ステータス: `active`, `startDate`, `initialLimitMinutes` など)

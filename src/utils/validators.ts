@@ -16,4 +16,21 @@ export const validateRefundAmount = (amount: string, voucherValue?: number): str
     return `選択された券種 (${voucherValue}円) と一致させてください。`;
   }
   return null;
+};
+
+export const validateTimeLimit = (timeLimit: string): string | null => {
+  if (!timeLimit) {
+    return '上限時間を入力してください。';
+  }
+  const numericTimeLimit = parseInt(timeLimit, 10);
+  if (isNaN(numericTimeLimit)) {
+    return '数値を入力してください。';
+  }
+  if (numericTimeLimit < 1 || numericTimeLimit > 1440) {
+    return '上限時間は1分から1440分の間で設定してください。';
+  }
+  if (!Number.isInteger(numericTimeLimit)) {
+    return '整数で入力してください。';
+  }
+  return null;
 }; 

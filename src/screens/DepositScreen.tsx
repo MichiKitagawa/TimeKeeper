@@ -2,15 +2,9 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { TextInput, Button, Text, Provider as PaperProvider, Menu } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
-import type { StackNavigationProp } from '@react-navigation/stack'; // 型をインポート
+import type { StackNavigationProp } from '@react-navigation/stack';
 import { saveDeposit, DepositData } from '../services/depositService';
-
-// 仮のナビゲーションパラメータリスト（実際のAppStackに合わせて調整が必要）
-type RootStackParamList = {
-  Deposit: undefined; // 現在の画面
-  TimeSettingScreen: undefined; // 遷移先の画面
-  // 他の画面もここに追加
-};
+import type { AppStackParamList } from '../navigation/AppNavigator'; // AppNavigatorから型をインポート
 
 // 仮の券種データ
 const voucherOptions = [
@@ -21,7 +15,7 @@ const voucherOptions = [
 ];
 
 const DepositScreen = () => {
-  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>(); // 型適用
+  const navigation = useNavigation<StackNavigationProp<AppStackParamList, 'Deposit'>>(); // 型適用と現在のルート名を指定
   const [refundAmount, setRefundAmount] = useState<string>('');
   const [selectedVoucher, setSelectedVoucher] = useState<number | undefined>(undefined);
   const [feeRate] = useState<number>(0.1); // 仮の手数料率 10%
