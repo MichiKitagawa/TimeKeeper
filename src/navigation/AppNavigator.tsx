@@ -2,6 +2,7 @@ import React, { useState, useEffect, createContext, useContext, ReactNode } from
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { isUserInactive, getUserPaymentStatus } from '../services/userService';
 
 import AuthLoadingScreen from '../screens/AuthLoadingScreen';
 import LoginScreen from '../screens/LoginScreen';
@@ -68,10 +69,10 @@ const AuthStackScreens = () => (
   </AuthStackNav.Navigator>
 );
 
-const AppStackScreens = () => (
-  <Stack.Navigator>
+const AppStackScreens = ({ initialRoute = 'Home' }: { initialRoute?: keyof AppStackParamList }) => (
+  <Stack.Navigator initialRouteName={initialRoute}>
     <Stack.Screen name="Home" component={MainScreen} options={{ title: 'メイン' }} />
-    <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '頭金入力' }} />
+    <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '利用料支払い' }} />
     <Stack.Screen name="TimeSettingScreen" component={TimeSettingScreen} options={{ title: '時間設定' }}/>
     <Stack.Screen name="LockScreen" component={LockScreen} options={{ title: 'ロック中', headerShown: false }} />
     <Stack.Screen name="CompletionScreen" component={CompletionScreen} options={{ title: 'チャレンジ完了', headerShown: false }} />
@@ -81,14 +82,55 @@ const AppStackScreens = () => (
 
 const AppNavigator = () => {
   const { user, isLoading } = useAuth();
+  const [isCheckingUserStatus, setIsCheckingUserStatus] = useState(true);
+  const [requiresPayment, setRequiresPayment] = useState(false);
+  const [initialRouteName, setInitialRouteName] = useState<keyof AppStackParamList>('Home');
 
-  if (isLoading) {
+  useEffect(() => {
+    const checkUserStatus = async () => {
+      if (user && !isLoading) {
+        try {
+          const inactive = await isUserInactive();
+          const paymentInfo = await getUserPaymentStatus();
+
+          const needsInitialPayment = !paymentInfo || paymentInfo.status !== 'paid';
+
+          if (inactive || needsInitialPayment) {
+            setRequiresPayment(true);
+            setInitialRouteName('Deposit');
+          } else {
+            setRequiresPayment(false);
+            setInitialRouteName('Home');
+          }
+        } catch (error) {
+          console.error("Error checking user status:", error);
+          // エラー時は安全のため支払い画面に誘導することも検討できるが、
+          // ここではメイン画面に進ませる（ただし、isUserInactiveやgetUserPaymentStatus内でエラーが起きた場合の挙動による）
+          setRequiresPayment(false); 
+          setInitialRouteName('Home');
+        }
+        setIsCheckingUserStatus(false);
+      } else if (!isLoading) {
+        setIsCheckingUserStatus(false);
+        setRequiresPayment(false);
+        setInitialRouteName('Home');
+      }
+    };
+
+    checkUserStatus();
+  }, [user, isLoading]);
+
+  if (isLoading || isCheckingUserStatus) {
     return <AuthLoadingScreen />;
   }
 
   return (
     <NavigationContainer>
-      {user ? <AppStackScreens /> : <AuthStackScreens />}
+      {user ? (
+        <AppStackScreens initialRoute={initialRouteName} />
+      ) : (
+        <AuthStackScreens />
+      )}
     </NavigationContainer>
   );
 };

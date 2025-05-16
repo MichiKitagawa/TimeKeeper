@@ -1,4 +1,4 @@
-import firestore from '@react-native-firebase/firestore';
+import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import functions from '@react-native-firebase/functions';
 
@@ -147,5 +147,121 @@ export const deleteOrAnonymizeUserData = async (userId: string): Promise<void> =
     console.error(`ユーザー ${userId} のデータ削除/匿名化処理中にエラー:`, error);
     // ここではエラーをスローせず、ログに記録するに留める（アプリのフローを止めないため）。
     // 必要に応じてエラーハンドリング戦略を見直す。
+  }
+};
+
+/**
+ * ユーザーの最終アクティブ日時を更新する。
+ * @returns Promise<void>
+ * @throws エラーが発生した場合
+ */
+export const updateLastActiveDate = async (): Promise<void> => {
+  const currentUser = auth().currentUser;
+  if (!currentUser) {
+    // ユーザーが認証されていない場合は何もしないか、エラーをスローするか選択
+    // ここではコンソールに警告を出すに留める
+    console.warn('[updateLastActiveDate] ユーザーが認証されていません。');
+    return;
+  }
+
+  const userId = currentUser.uid;
+  const userDocRef = firestore().collection('users').doc(userId);
+
+  try {
+    await userDocRef.update({
+      lastActiveDate: firestore.FieldValue.serverTimestamp(),
+      updatedAt: firestore.FieldValue.serverTimestamp(), // updatedAtも併せて更新
+    });
+    console.log(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時を更新しました。`);
+  } catch (error) {
+    console.error(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時更新エラー:`, error);
+    // エラーを再スローするかどうかは呼び出し側の要件による
+    // throw error;
+  }
+};
+
+/**
+ * ユーザーが非アクティブかどうかを判定する。
+ * @param inactiveThresholdDays 非アクティブと見なす閾値（日数）。デフォルトは7日。
+ * @returns Promise<boolean> 非アクティブであればtrue、そうでなければfalse。
+ * @throws エラーが発生した場合（ユーザー未認証、ユーザーデータ取得失敗など）
+ */
+export const isUserInactive = async (inactiveThresholdDays: number = 7): Promise<boolean> => {
+  const currentUser = auth().currentUser;
+  if (!currentUser) {
+    throw new Error('[isUserInactive] ユーザーが認証されていません。');
+  }
+
+  const userId = currentUser.uid;
+  const userDocRef = firestore().collection('users').doc(userId);
+
+  try {
+    const userDoc = await userDocRef.get();
+    if (!userDoc.exists()) {
+      // ユーザードキュメントが存在しない場合は、新規ユーザーまたはエラーケース
+      // ここでは非アクティブとは見なさない（あるいは特定の初期状態として扱う）
+      console.warn(`[isUserInactive] ユーザー ${userId} のドキュメントが存在しません。`);
+      return false; 
+    }
+
+    const userData = userDoc.data();
+    if (!userData || !userData.lastActiveDate) {
+      // lastActiveDate がない場合も、非アクティブとは見なさない（または初回アクセスと見なす）
+      console.warn(`[isUserInactive] ユーザー ${userId} の lastActiveDate が存在しません。`);
+      return false;
+    }
+
+    const lastActiveTimestamp = userData.lastActiveDate as FirebaseFirestoreTypes.Timestamp;
+    const lastActiveDateTime = lastActiveTimestamp.toDate();
+    const now = new Date();
+    
+    const diffTime = Math.abs(now.getTime() - lastActiveDateTime.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays > inactiveThresholdDays) {
+      console.log(`[isUserInactive] ユーザー ${userId} は非アクティブです（最終アクティブから ${diffDays}日経過）。`);
+      return true;
+    }
+
+    console.log(`[isUserInactive] ユーザー ${userId} はアクティブです（最終アクティブから ${diffDays}日経過）。`);
+    return false;
+
+  } catch (error) {
+    console.error(`[isUserInactive] ユーザー ${userId} の非アクティブ状態判定エラー:`, error);
+    // エラー発生時は、安全側に倒して非アクティブではないと見なすか、エラーをスローするか検討
+    // ここではエラーをスローして呼び出し元でハンドリングさせる
+    throw error;
+  }
+};
+
+/**
+ * ユーザーの支払いステータスを取得する。
+ * @returns Promise<{ status: string | null, paymentId: string | null } | null> 支払い情報、またはユーザーデータが存在しない場合はnull。
+ * @throws エラーが発生した場合（ユーザー未認証など）
+ */
+export const getUserPaymentStatus = async (): Promise<{ status: string | null; paymentId: string | null } | null> => {
+  const currentUser = auth().currentUser;
+  if (!currentUser) {
+    throw new Error('[getUserPaymentStatus] ユーザーが認証されていません。');
+  }
+
+  const userId = currentUser.uid;
+  const userDocRef = firestore().collection('users').doc(userId);
+
+  try {
+    const userDoc = await userDocRef.get();
+    if (!userDoc.exists()) {
+      console.warn(`[getUserPaymentStatus] ユーザー ${userId} のドキュメントが存在しません。`);
+      return null; // 新規ユーザーやデータ未作成の場合
+    }
+
+    const userData = userDoc.data();
+    return {
+      status: userData?.paymentStatus || null,
+      paymentId: userData?.paymentId || null,
+    };
+  } catch (error) {
+    console.error(`[getUserPaymentStatus] ユーザー ${userId} の支払いステータス取得エラー:`, error);
+    throw error; // エラーを呼び出し元でハンドリングさせる
   }
 }; 
