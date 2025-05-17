@@ -22,7 +22,7 @@ const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => {
 // };
 
 // Firestoreに今日の利用時間を保存/更新
-const saveUsageTimeToFirestore = async () => {
+export const saveUsageTimeToFirestore = async () => {
   const currentUser = auth().currentUser;
   if (!currentUser || accumulatedSecondsInForeground < SAVE_INTERVAL_SECONDS) { // ユーザーがいないか、更新するほどの時間が経っていなければ何もしない
     if (accumulatedSecondsInForeground > 0 && accumulatedSecondsInForeground < SAVE_INTERVAL_SECONDS) {
@@ -86,6 +86,12 @@ const saveUsageTimeToFirestore = async () => {
   }
 };
 
+// --- テスト用エクスポート ---
+export const _getAccumulatedSecondsInForeground = () => accumulatedSecondsInForeground;
+export const _setAccumulatedSecondsInForeground = (seconds: number) => {
+  accumulatedSecondsInForeground = seconds;
+};
+// --- ここまでテスト用エクスポート ---
 
 // AppStateの変更を監視
 const handleAppStateChange = (nextAppState: AppStateStatus) => {

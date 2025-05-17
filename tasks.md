@@ -106,20 +106,20 @@
 25. **単体テスト・結合テスト作成 (Jest, React Native Testing Library)**
     *   **Services:**
         *   [x] `src/services/authService.ts`
-        *   [ ] `src/services/depositService.ts` (または `paymentService.ts`)
-        *   [ ] `src/services/unlockService.ts`
-        *   [ ] `src/services/usageTrackingService.ts`
-        *   [ ] `src/services/userService.ts`
+        *   [~] `src/services/depositService.ts` (または `paymentService.ts`)
+        *   [x] `src/services/unlockService.ts`
+        *   [~] `src/services/usageTrackingService.ts`
+        *   [~] `src/services/userService.ts`
     *   **Utils:**
         *   [x] `src/utils/validators.ts`
     *   **Screens:**
         *   [x] `src/screens/AuthLoadingScreen.tsx`
-        *   [ ] `src/screens/CompletionScreen.tsx`
-        *   [ ] `src/screens/DepositScreen.tsx`
-        *   [ ] `src/screens/LockScreen.tsx`
+        *   [x] `src/screens/CompletionScreen.tsx`
+        *   [x] `src/screens/DepositScreen.tsx`
+        *   [x] `src/screens/LockScreen.tsx`
         *   [x] `src/screens/LoginScreen.tsx`
-        *   [ ] `src/screens/MainScreen.tsx`
-        *   [ ] `src/screens/TimeSettingScreen.tsx`
+        *   [x] `src/screens/MainScreen.tsx`
+        *   [x] `src/screens/TimeSettingScreen.tsx`
     *   **Navigation:**
         *   [ ] `src/navigation/AppNavigator.tsx`
     *   (その他、必要に応じてカスタムフックや共通コンポーネントのテストを追加)

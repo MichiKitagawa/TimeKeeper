@@ -13,7 +13,7 @@ export interface UnlockLogData {
 }
 
 // ユーザーの最新のアンロックログを取得
-const getLatestUnlockLog = async (userId: string): Promise<UnlockLogData | null> => {
+export const getLatestUnlockLog = async (userId: string): Promise<UnlockLogData | null> => {
   try {
     const snapshot = await firestore()
       .collection('unlockLogs')

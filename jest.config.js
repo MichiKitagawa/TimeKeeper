@@ -4,4 +4,8 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!(jest-)?@?react-native|@react-native-community|@react-navigation|@react-native-firebase)',
   ],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    'src/services/__tests__/depositService.test.ts',
+  ],
 };

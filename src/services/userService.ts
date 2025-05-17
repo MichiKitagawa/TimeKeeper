@@ -235,6 +235,28 @@ export const isUserInactive = async (inactiveThresholdDays: number = 7): Promise
 };
 
 /**
+ * Firestoreから現在のユーザーデータを取得する
+ * @returns {Promise<FirebaseFirestoreTypes.DocumentData | null>} ユーザーデータ、または存在しない場合はnull
+ */
+export const getUserData = async (): Promise<FirebaseFirestoreTypes.DocumentData | null> => {
+  const currentUser = auth().currentUser;
+  if (!currentUser) {
+    console.warn('[getUserData] ユーザーが認証されていません。');
+    return null;
+  }
+  try {
+    const userDocument = await firestore().collection('users').doc(currentUser.uid).get();
+    if (userDocument.exists) {
+      return userDocument.data() ?? null;
+    }
+    return null;
+  } catch (error) {
+    console.error('[getUserData] ユーザーデータの取得エラー:', error);
+    throw error; // or return null based on how you want to handle errors
+  }
+};
+
+/**
  * ユーザーの支払いステータスを取得する。
  * @returns Promise<{ status: string | null, paymentId: string | null } | null> 支払い情報、またはユーザーデータが存在しない場合はnull。
  * @throws エラーが発生した場合（ユーザー未認証など）

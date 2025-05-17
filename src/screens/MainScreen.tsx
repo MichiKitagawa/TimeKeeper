@@ -215,7 +215,11 @@ const MainScreen = () => {
   const isLoading = isLoadingUser || isLoadingChallenge || isLoadingUsageLog;
 
   if (isLoading) {
-    return <PaperProvider><View style={styles.centered}><ActivityIndicator animating={true} size="large" /></View></PaperProvider>;
+    return (
+      <PaperProvider>
+        <View style={styles.centered}><ActivityIndicator testID="loading-indicator" animating={true} size="large" /></View>
+      </PaperProvider>
+    );
   }
 
   // エラーがあり、かつチャレンジデータか利用ログのどちらかが無い場合にエラー表示

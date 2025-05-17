@@ -3,7 +3,7 @@ import { View, StyleSheet, Alert } from 'react-native';
 import { Button, Text, Provider as PaperProvider, ActivityIndicator } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { processPayment } from '../services/paymentService';
+import { processPayment } from '../services/depositService';
 import type { AppStackParamList } from '../navigation/AppNavigator';
 
 const FIXED_PAYMENT_AMOUNT_DISPLAY = "5,000円";
