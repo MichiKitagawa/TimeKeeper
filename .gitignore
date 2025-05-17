@@ -85,3 +85,5 @@ firebase-data/
 
 # Windows
 Thumbs.db
+
+android/app/google-services.json

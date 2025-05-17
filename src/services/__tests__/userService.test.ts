@@ -123,22 +123,27 @@ describe('userService', () => {
     it('should throw error if user has already set time limit', async () => {
       mockAuthCurrentUser = { uid: mockUserId };
       (auth as jest.MockedFunction<typeof auth>).mockReturnValue({ currentUser: mockAuthCurrentUser } as any);
-      (firestore as any).mocks.mockGet.mockResolvedValue({ 
-        exists: () => true,
-        data: () => ({ currentLimit: 30 })
-      }); 
       
-      (firestore as any).mocks.mockRunTransaction.mockImplementation(async (updateFunction: (transaction: any) => Promise<void>) => {
-        const mockTransaction = {
-          get: (docRef: any) => (firestore as any).mocks.mockGet(docRef),
-          set: (firestore as any).mocks.mockSet, 
-          update: (firestore as any).mocks.mockUpdate,
+      const mockTransactionGet = jest.fn().mockResolvedValue({ 
+        exists: true,
+        data: () => ({ currentLimit: 30 })
+      });
+      mockTransactionGet.mockResolvedValueOnce({
+         exists: () => true,
+         data: () => ({ currentLimit: 30 }),
+      });
+
+      mockRunTransaction.mockImplementationOnce(async (callbackWhichMayThrow) => {
+        const transaction = {
+          get: mockTransactionGet,
+          set: jest.fn(),
+          update: jest.fn(),
+          delete: jest.fn(),
         };
         try {
-          await updateFunction(mockTransaction);
-        } catch (e: any) {
-          if (e.message === '時間設定は初回のみ可能です。') throw e;
-          throw new Error(`Unexpected error in transaction mock: ${e.message}`); 
+          await callbackWhichMayThrow(transaction);
+        } catch (error) {
+          throw error; 
         }
       });
 
@@ -418,9 +423,8 @@ describe('userService', () => {
   });
 
   describe('deleteOrAnonymizeUserData', () => {
-    it('ユーザーIDがない場合エラーをスローする（userService.tsの実装はcurrentUserを参照）', async () => {
-        (auth as jest.MockedFunction<typeof auth>).mockReturnValue({ currentUser: null } as any); 
-        await expect(deleteOrAnonymizeUserData()).rejects.toThrow('ユーザーIDが必要です。');
+    it('userId引数がない場合エラーをスローする', async () => {
+        await expect(deleteOrAnonymizeUserData(undefined as any)).rejects.toThrow('ユーザーIDが必要です。');
     });
 
     it('functionsのanonymizeUserDataが呼び出される', async () => {
@@ -428,7 +432,7 @@ describe('userService', () => {
              currentUser: { uid: mockUserId } 
         } as any);
         
-        await deleteOrAnonymizeUserData();
+        await deleteOrAnonymizeUserData(mockUserId);
         expect(mockHttpsCallable).toHaveBeenCalledWith('anonymizeUserData');
         expect(mockAnonymizeUserDataCallable).toHaveBeenCalled();
     });
@@ -440,7 +444,7 @@ describe('userService', () => {
         mockAnonymizeUserDataCallable.mockRejectedValueOnce(new Error('Function error'));
         console.error = jest.fn(); 
 
-        await expect(deleteOrAnonymizeUserData()).resolves.toBeUndefined();
+        await expect(deleteOrAnonymizeUserData(mockUserId)).resolves.toBeUndefined();
         expect(console.error).toHaveBeenCalledWith(`ユーザー ${mockUserId} のデータ削除/匿名化処理中にエラー:`, expect.any(Error));
     });
   });

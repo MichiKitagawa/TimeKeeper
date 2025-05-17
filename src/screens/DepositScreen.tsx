@@ -17,8 +17,8 @@ const DepositScreen = () => {
     setIsLoading(true);
     try {
       await processPayment();
-      Alert.alert('支払い完了', '利用料の支払い処理が完了しました。時間設定に進みます。');
-      navigation.navigate('TimeSettingScreen');
+      Alert.alert('支払い完了', '利用料の支払い処理が完了しました。メイン画面に進みます。');
+      navigation.replace('Home');
     } catch (error: any) {
       console.error('支払い処理エラー:', error);
       Alert.alert('支払いエラー', error.message || '支払いの処理に失敗しました。しばらくしてから再度お試しください。');

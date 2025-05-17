@@ -6,13 +6,14 @@ import { useAuth } from '../navigation/AppNavigator';
 import { useNavigation, StackActions } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
+import { getTodayUtcTimestamp } from '../services/usageTrackingService'; // インポート
 
 // 今日の日付の0時0分0秒(UTC)を取得するヘルパー (usageTrackingServiceから拝借)
-const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => {
-  const now = new Date();
-  now.setUTCHours(0, 0, 0, 0);
-  return firestore.Timestamp.fromDate(now);
-};
+// const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => { // 削除
+//   const now = new Date();
+//   now.setUTCHours(0, 0, 0, 0);
+//   return firestore.Timestamp.fromDate(now);
+// };
 
 interface ChallengeData {
   id: string;
@@ -137,6 +138,12 @@ const MainScreen = () => {
     }
     setIsLoadingUsageLog(true);
     const todayTimestamp = getTodayUtcTimestamp();
+    if (!todayTimestamp) { // nullチェック
+      setError('日付情報の取得に失敗しました。');
+      setIsLoadingUsageLog(false);
+      setUsageLogData({ usedMinutes: 0, dailyLimitReached: false });
+      return;
+    }
     const usageLogQuery = firestore()
       .collection('usageLogs')
       .where('userId', '==', user.uid)
@@ -174,7 +181,12 @@ const MainScreen = () => {
       // dailyLimit が 0 より大きく、使用時間が上限を超え、まだロックされていない場合
       if (used >= dailyLimit && dailyLimit > 0 && !usageLogData.dailyLimitReached) {
         console.log('Lock condition met! Navigating to LockScreen.');
-        const todayTimestamp = getTodayUtcTimestamp();
+        const todayTimestamp = getTodayUtcTimestamp(); // ここでも使用
+        if (!todayTimestamp) { // nullチェック
+          console.error("Failed to get todayTimestamp for updating dailyLimitReached");
+          // エラーハンドリング: 例えばロック画面に遷移させない、またはエラーをユーザーに通知
+          return; 
+        }
         const usageLogDocQuery = firestore()
           .collection('usageLogs')
           .where('userId', '==', user.uid)

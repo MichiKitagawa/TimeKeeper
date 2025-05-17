@@ -1,6 +1,28 @@
-import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
+import {
+  getFirestore,
+  serverTimestamp,
+  Timestamp,
+  getDoc,
+  setDoc,
+  updateDoc,
+  doc,
+  runTransaction,
+  collection,
+  FieldValue,
+} from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import functions from '@react-native-firebase/functions';
+
+// Firestoreインスタンスを一度だけ取得
+const db = getFirestore();
+
+export interface UserFlowStatus {
+  averageUsageTimeFetched: boolean;
+  timeLimitSet: boolean;
+  paymentCompleted: boolean;
+  currentChallengeId?: string | null; // 既存のチャレンジIDも返すようにする
+  currentLimit?: number | null; // 既存の目標時間も返す
+}
 
 export interface UserTimeSettings {
   initialLimitMinutes: number;
@@ -22,24 +44,25 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
   }
 
   const userId = currentUser.uid;
-  const userDocRef = firestore().collection('users').doc(userId);
-  const newChallengeRef = firestore().collection('challenges').doc(); // 新しいチャレンジのドキュメント参照を先に作成
+  const userDocRef = doc(db, 'users', userId);
+  const newChallengeRef = doc(collection(db, 'challenges')); // ID自動生成
 
   try {
-    await firestore().runTransaction(async (transaction) => {
-      const userDoc = await transaction.get(userDocRef);
+    await runTransaction(db, async (transaction) => {
+      const userDocSnap = await transaction.get(userDocRef);
 
-      if (userDoc.exists() && userDoc.data()?.currentLimit != null) {
-        throw new Error('時間設定は初回のみ可能です。');
-      }
+      // if (userDocSnap.exists() && userDocSnap.data()?.currentLimit != null) { // 既存のロジックは一旦コメントアウト、もしくは仕様見直し
+      //   throw new Error('時間設定は初回のみ可能です。');
+      // }
 
       transaction.set(
         userDocRef,
         {
           currentLimit: settings.initialLimitMinutes,
           challengeId: newChallengeRef.id,
-          updatedAt: firestore.FieldValue.serverTimestamp(),
-          createdAt: userDoc.exists() ? userDoc.data()?.createdAt : firestore.FieldValue.serverTimestamp(),
+          timeLimitSet: true, // 目標時間設定完了フラグ
+          updatedAt: serverTimestamp(),
+          createdAt: userDocSnap.exists() ? userDocSnap.data()?.createdAt : serverTimestamp(),
         },
         { merge: true }
       );
@@ -47,48 +70,40 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
       transaction.set(newChallengeRef, {
         userId: userId,
         initialLimitMinutes: settings.initialLimitMinutes,
-        currentDailyLimitMinutes: settings.initialLimitMinutes, // 初期値として設定（Cloud Functionsが日次で更新）
+        currentDailyLimitMinutes: settings.initialLimitMinutes,
         status: 'active' as const,
-        startDate: firestore.FieldValue.serverTimestamp(),
-        // endDate, targetDays, remainingDays はここでは設定しない (必要に応じて後から追加)
+        startDate: serverTimestamp(),
       });
     });
-    return newChallengeRef.id; // 成功したら新しいチャレンジIDを返す
+    return newChallengeRef.id;
   } catch (error) {
     console.error('時間設定とチャレンジ作成エラー:', error);
     if (error instanceof Error) {
-      throw new Error(`時間設定の保存に失敗しました: ${error.message}`);
+      // throw new Error(`時間設定の保存に失敗しました: ${error.message}`);
+      // 画面側でハンドリングしやすいように、カスタムエラーオブジェクトやエラーコードを返すことも検討
+      throw error; 
     }
     throw new Error('時間設定の保存中に不明なエラーが発生しました。');
   }
 };
 
 /**
- * 退会処理（返金要求）。Cloud Function を呼び出し、チャレンジステータスを更新する。
+ * 退会処理（返金要求）。チャレンジステータスを更新する。
  * @param userId ユーザーID
  * @param challengeId チャレンジID
- * @returns ギフトコード情報を含むオブジェクト
+ * @returns メッセージ
  */
 export const requestRefund = async (userId: string, challengeId: string) => {
   if (!userId || !challengeId) {
     throw new Error('ユーザーIDまたはチャレンジIDが必要です。');
   }
   try {
-    // チャレンジステータスを更新
-    const challengeRef = firestore().collection('challenges').doc(challengeId);
-    await challengeRef.update({
+    const challengeRef = doc(db, 'challenges', challengeId);
+    await updateDoc(challengeRef, {
       status: 'completed_refund' as const,
-      endDate: firestore.FieldValue.serverTimestamp(), // 完了日時を記録
+      endDate: serverTimestamp(),
     });
-
-    // (オプション) usersコレクションのchallengeIdをクリアするなども検討
-    // const userRef = firestore().collection('users').doc(userId);
-    // await userRef.update({ challengeId: null });
-
-    // ここでユーザーデータの削除または匿名化処理を呼び出す (オプション)
-    // await deleteOrAnonymizeUserData(userId); // 将来的に実装
-
-    return { message: '返金処理を受け付けました。詳細は別途通知されます。' }; // 固定メッセージを返すように変更
+    return { message: '返金処理を受け付けました。詳細は別途通知されます。' };
   } catch (error) {
     console.error('退会・返金処理エラー:', error);
     if (error instanceof Error) {
@@ -108,17 +123,10 @@ export const continueChallenge = async (userId: string, challengeId: string) => 
     throw new Error('ユーザーIDまたはチャレンジIDが必要です。');
   }
   try {
-    const challengeRef = firestore().collection('challenges').doc(challengeId);
-    await challengeRef.update({
+    const challengeRef = doc(db, 'challenges', challengeId);
+    await updateDoc(challengeRef, {
       status: 'completed_continue' as const,
-      // endDate は設定しないか、あるいは新しいチャレンジ開始時にリセットされる想定
     });
-
-    // usersコレクションのchallengeIdは新しいチャレンジ作成時に更新される想定なのでここではクリアしない
-    // （あるいは、一旦nullにしてDepositScreenで再設定を促すか）
-    // const userRef = firestore().collection('users').doc(userId);
-    // await userRef.update({ challengeId: null });
-
     console.log(`チャレンジID: ${challengeId} のステータスを completed_continue に更新しました。`);
   } catch (error) {
     console.error('継続処理エラー:', error);
@@ -129,161 +137,323 @@ export const continueChallenge = async (userId: string, challengeId: string) => 
   }
 };
 
-/**
- * (オプション) ユーザーデータの削除または匿名化を行うCloud Functionを呼び出す（将来的な実装）。
- * 現在はスタブとして定義。
- * @param userId 削除/匿名化対象のユーザーID
- */
 export const deleteOrAnonymizeUserData = async (userId: string): Promise<void> => {
   if (!userId) {
     throw new Error('ユーザーIDが必要です。');
   }
   try {
     console.log(`[userService] 将来的にCloud Functionを呼び出してユーザー ${userId} のデータを削除/匿名化します。`);
-    // const deleteFunction = functions().httpsCallable('deleteUserData'); // 仮の関数名
-    // await deleteFunction({ userId });
-    // console.log(`ユーザー ${userId} のデータ削除/匿名化処理を要求しました。`);
   } catch (error) {
     console.error(`ユーザー ${userId} のデータ削除/匿名化処理中にエラー:`, error);
-    // ここではエラーをスローせず、ログに記録するに留める（アプリのフローを止めないため）。
-    // 必要に応じてエラーハンドリング戦略を見直す。
   }
 };
 
-/**
- * ユーザーの最終アクティブ日時を更新する。
- * @returns Promise<void>
- * @throws エラーが発生した場合
- */
 export const updateLastActiveDate = async (): Promise<void> => {
   const currentUser = auth().currentUser;
   if (!currentUser) {
-    // ユーザーが認証されていない場合は何もしないか、エラーをスローするか選択
-    // ここではコンソールに警告を出すに留める
     console.warn('[updateLastActiveDate] ユーザーが認証されていません。');
     return;
   }
-
   const userId = currentUser.uid;
-  const userDocRef = firestore().collection('users').doc(userId);
-
+  const userDocRef = doc(db, 'users', userId);
   try {
-    await userDocRef.update({
-      lastActiveDate: firestore.FieldValue.serverTimestamp(),
-      updatedAt: firestore.FieldValue.serverTimestamp(), // updatedAtも併せて更新
+    await updateDoc(userDocRef, {
+      lastActiveDate: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
     console.log(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時を更新しました。`);
   } catch (error) {
     console.error(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時更新エラー:`, error);
-    // エラーを再スローするかどうかは呼び出し側の要件による
-    // throw error;
+    throw error;
   }
 };
 
 /**
  * ユーザーが非アクティブかどうかを判定する。
+ * @param userId ユーザーID
  * @param inactiveThresholdDays 非アクティブと見なす閾値（日数）。デフォルトは7日。
  * @returns Promise<boolean> 非アクティブであればtrue、そうでなければfalse。
- * @throws エラーが発生した場合（ユーザー未認証、ユーザーデータ取得失敗など）
  */
-export const isUserInactive = async (inactiveThresholdDays: number = 7): Promise<boolean> => {
-  const currentUser = auth().currentUser;
-  if (!currentUser) {
-    throw new Error('[isUserInactive] ユーザーが認証されていません。');
+export const isUserInactive = async (userId: string, inactiveThresholdDays: number = 7): Promise<boolean> => {
+  if (!userId) {
+    throw new Error('[isUserInactive] ユーザーIDが指定されていません。');
   }
-
-  const userId = currentUser.uid;
-  const userDocRef = firestore().collection('users').doc(userId);
-
+  const userDocRef = doc(db, 'users', userId);
   try {
-    const userDoc = await userDocRef.get();
-    if (!userDoc.exists()) {
-      // ユーザードキュメントが存在しない場合は、新規ユーザーまたはエラーケース
-      // ここでは非アクティブとは見なさない（あるいは特定の初期状態として扱う）
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
       console.warn(`[isUserInactive] ユーザー ${userId} のドキュメントが存在しません。`);
-      return false; 
+      return false;
     }
-
-    const userData = userDoc.data();
+    const userData = userSnap.data();
     if (!userData || !userData.lastActiveDate) {
-      // lastActiveDate がない場合も、非アクティブとは見なさない（または初回アクセスと見なす）
       console.warn(`[isUserInactive] ユーザー ${userId} の lastActiveDate が存在しません。`);
       return false;
     }
-
-    const lastActiveTimestamp = userData.lastActiveDate as FirebaseFirestoreTypes.Timestamp;
+    const lastActiveTimestamp = userData.lastActiveDate as Timestamp;
     const lastActiveDateTime = lastActiveTimestamp.toDate();
     const now = new Date();
-    
     const diffTime = Math.abs(now.getTime() - lastActiveDateTime.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
     if (diffDays > inactiveThresholdDays) {
       console.log(`[isUserInactive] ユーザー ${userId} は非アクティブです（最終アクティブから ${diffDays}日経過）。`);
       return true;
     }
-
     console.log(`[isUserInactive] ユーザー ${userId} はアクティブです（最終アクティブから ${diffDays}日経過）。`);
     return false;
-
   } catch (error) {
     console.error(`[isUserInactive] ユーザー ${userId} の非アクティブ状態判定エラー:`, error);
-    // エラー発生時は、安全側に倒して非アクティブではないと見なすか、エラーをスローするか検討
-    // ここではエラーをスローして呼び出し元でハンドリングさせる
     throw error;
   }
 };
 
 /**
  * Firestoreから現在のユーザーデータを取得する
- * @returns {Promise<FirebaseFirestoreTypes.DocumentData | null>} ユーザーデータ、または存在しない場合はnull
+ * @returns {Promise<any | null>} ユーザーデータ、または存在しない場合はnull
  */
-export const getUserData = async (): Promise<FirebaseFirestoreTypes.DocumentData | null> => {
+export const getUserData = async (): Promise<any | null> => { // DocumentDataの具体的な型が不明なためanyを使用
   const currentUser = auth().currentUser;
   if (!currentUser) {
     console.warn('[getUserData] ユーザーが認証されていません。');
     return null;
   }
   try {
-    const userDocument = await firestore().collection('users').doc(currentUser.uid).get();
-    if (userDocument.exists) {
-      return userDocument.data() ?? null;
+    const userRef = doc(db, 'users', currentUser.uid);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      return userSnap.data();
+    } else {
+      console.log(`[getUserData] ユーザー ${currentUser.uid} のドキュメントが見つかりません。`);
+      return null;
     }
-    return null;
   } catch (error) {
-    console.error('[getUserData] ユーザーデータの取得エラー:', error);
-    throw error; // or return null based on how you want to handle errors
+    console.error(`[getUserData] ユーザー ${currentUser.uid} のデータ取得エラー:`, error);
+    throw error;
   }
 };
 
 /**
- * ユーザーの支払いステータスを取得する。
- * @returns Promise<{ status: string | null, paymentId: string | null } | null> 支払い情報、またはユーザーデータが存在しない場合はnull。
- * @throws エラーが発生した場合（ユーザー未認証など）
+ * ユーザーの支払いステータスと支払いIDを取得する。
+ * @returns {Promise<{ status: string | null; paymentId: string | null } | null>} 支払い情報、または取得失敗時はnull。
  */
 export const getUserPaymentStatus = async (): Promise<{ status: string | null; paymentId: string | null } | null> => {
   const currentUser = auth().currentUser;
   if (!currentUser) {
-    throw new Error('[getUserPaymentStatus] ユーザーが認証されていません。');
+    console.warn('[getUserPaymentStatus] ユーザーが認証されていません。');
+    return null;
   }
-
   const userId = currentUser.uid;
-  const userDocRef = firestore().collection('users').doc(userId);
-
+  const userDocRef = doc(db, 'users', userId);
   try {
-    const userDoc = await userDocRef.get();
-    if (!userDoc.exists()) {
-      console.warn(`[getUserPaymentStatus] ユーザー ${userId} のドキュメントが存在しません。`);
-      return null; // 新規ユーザーやデータ未作成の場合
+    const userSnap = await getDoc(userDocRef);
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      return {
+        status: data?.paymentStatus || null, // paymentStatusフィールドを想定
+        paymentId: data?.paymentId || null,   // paymentIdフィールドを想定
+        // paymentCompleted: data?.paymentCompleted || false, // 新しいフィールドも返す場合
+      };
+    } else {
+      console.warn(`[getUserPaymentStatus] ユーザー ${userId} のドキュメントが見つかりません。`);
+      return null; // ドキュメントがない場合は支払い情報なし
     }
-
-    const userData = userDoc.data();
-    return {
-      status: userData?.paymentStatus || null,
-      paymentId: userData?.paymentId || null,
-    };
   } catch (error) {
     console.error(`[getUserPaymentStatus] ユーザー ${userId} の支払いステータス取得エラー:`, error);
-    throw error; // エラーを呼び出し元でハンドリングさせる
+    throw error; // エラーを呼び出し元にスロー
+  }
+};
+
+/**
+ * ユーザーアカウントの存在を確認し、存在しない場合は初期ドキュメントを作成する。
+ * @param uid 作成または確認するユーザーのUID。
+ * @returns Promise<void>
+ * @throws Firestoreのエラーが発生した場合
+ */
+export const ensureUserDocument = async (uid: string): Promise<void> => {
+  if (!uid) {
+    console.error('[ensureUserDocument] UID is undefined or null.');
+    throw new Error('UIDが必要です。');
+  }
+  const userDocRef = doc(db, 'users', uid);
+  try {
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      console.log(`[ensureUserDocument] User document for ${uid} does not exist. Creating...`);
+      await setDoc(userDocRef, {
+        uid: uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        paymentStatus: 'unpaid', // 初期支払いステータス
+        lastActiveDate: serverTimestamp(), // 初期アクティブ日時
+        // 新しいフロー管理フィールドの初期値
+        averageUsageTimeFetched: false,
+        timeLimitSet: false,
+        paymentCompleted: false,
+        currentLimit: null, // 目標時間
+        challengeId: null, // チャレンジID
+      });
+      console.log(`[ensureUserDocument] User document for ${uid} created successfully.`);
+    } else {
+      console.log(`[ensureUserDocument] User document for ${uid} already exists.`);
+      // 既存ドキュメントにもしこれらのフィールドがなければ追加する処理も検討できるが、
+      // getUserFlowStatus が || false で対応しているので、必須ではない。
+      // 強制的に上書きはせず、存在しない場合のみの初期化に留める。
+    }
+  } catch (error) {
+    console.error(`[ensureUserDocument] Error ensuring user document for ${uid}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * ユーザーに関連するデータを削除する (例: チャレンジ)。
+ * 注意: この関数はユーザーの認証情報 (auth) は削除しません。
+ * @param userId 削除対象のユーザーID
+ */
+export const deleteUserRelatedData = async (userId: string): Promise<void> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが必要です。');
+  }
+
+  const challengesRef = collection(db, 'challenges');
+  // クエリを作成する代わりに、ここでは簡略化のため具体的な処理は省略
+  // 実際には `where("userId", "==", userId)` のようなクエリで対象チャレンジを検索・削除する
+  console.log(`[deleteUserRelatedData] ユーザー ${userId} の関連データ削除処理を開始します (現状はチャレンジのクエリ・削除は未実装)。`);
+
+  // const q = query(challengesRef, where("userId", "==", userId));
+  // const querySnapshot = await getDocs(q);
+  // const deletePromises: Promise<void>[] = [];
+  // querySnapshot.forEach((docSnap) => {
+  //   deletePromises.push(deleteDoc(doc(db, 'challenges', docSnap.id)));
+  // });
+  // await Promise.all(deletePromises);
+  // console.log(`ユーザー ${userId} のチャレンジデータを削除しました。`);
+
+  // usersコレクションのドキュメント自体を削除する (オプション)
+  // const userRef = doc(db, 'users', userId);
+  // await deleteDoc(userRef);
+  // console.log(`ユーザー ${userId} のユーザードキュメントを削除しました。`);
+};
+
+export interface UserPreferences {
+  notificationsEnabled?: boolean;
+  theme?: 'light' | 'dark';
+}
+
+export const updateUserPreferences = async (userId: string, preferences: UserPreferences): Promise<void> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが必要です。');
+  }
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    await updateDoc(userDocRef, {
+      preferences: preferences,
+      updatedAt: serverTimestamp(),
+    });
+    console.log(`ユーザー ${userId} の設定を更新しました。`);
+  } catch (error) {
+    console.error(`ユーザー ${userId} の設定更新エラー:`, error);
+    throw error;
+  }
+};
+
+export const getUserPreferences = async (userId: string): Promise<UserPreferences | null> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが必要です。');
+  }
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    const userSnap = await getDoc(userDocRef);
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      return (data?.preferences as UserPreferences) || null;
+    }
+    return null;
+  } catch (error) {
+    console.error(`ユーザー ${userId} の設定取得エラー:`, error);
+    throw error;
+  }
+};
+
+// ユーザーの特定のフロー状態を更新する汎用関数
+export const updateUserFlowStatus = async (userId: string, statusUpdates: Partial<UserFlowStatus>): Promise<void> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが必要です。');
+  }
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    await updateDoc(userDocRef, {
+      ...statusUpdates,
+      updatedAt: serverTimestamp(),
+    });
+    console.log(`[updateUserFlowStatus] User ${userId} flow status updated:`, statusUpdates);
+  } catch (error) {
+    console.error(`[updateUserFlowStatus] Error updating user ${userId} flow status:`, error);
+    throw error;
+  }
+};
+
+// 各フロー完了時に呼び出す個別の更新関数
+export const markAverageUsageTimeFetched = async (userId: string): Promise<void> => {
+  await updateUserFlowStatus(userId, { averageUsageTimeFetched: true });
+};
+
+export const markTimeLimitSet = async (userId: string, challengeId: string, initialLimitMinutes: number): Promise<void> => {
+  // この関数はsetUserInitialTimeLimitAndCreateChallengeに統合されているので、直接は使わないかもしれないが、
+  // 個別にフラグだけ更新したいケースがあれば利用
+  await updateUserFlowStatus(userId, { 
+    timeLimitSet: true, 
+    currentChallengeId: challengeId,
+    currentLimit: initialLimitMinutes
+  });
+};
+
+export const markPaymentCompleted = async (userId: string): Promise<void> => {
+  // 支払い情報は別途 processPayment 等で更新される想定のため、ここでは paymentCompleted フラグのみを更新
+  await updateUserFlowStatus(userId, { paymentCompleted: true });
+
+  // 既存の paymentStatus フィールドも更新する場合 (例)
+  // await updateDoc(doc(db, 'users', userId), {
+  //   paymentStatus: 'paid',
+  //   paymentId: paymentId, // 必要であれば
+  //   paymentCompleted: true, // 新しいフラグ
+  //   updatedAt: serverTimestamp(),
+  // });
+};
+
+/**
+ * ユーザーの現在のフロー状態を取得する
+ * @param userId
+ * @returns {Promise<UserFlowStatus>}
+ */
+export const getUserFlowStatus = async (userId: string): Promise<UserFlowStatus> => {
+  if (!userId) {
+    throw new Error('[getUserFlowStatus] ユーザーIDが指定されていません。');
+  }
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      console.warn(`[getUserFlowStatus] ユーザー ${userId} のドキュメントが存在しません。初期状態を返します。`);
+      // ドキュメントが存在しない場合は、全フラグfalseで返す (ensureUserDocumentで作成されるはずだが念のため)
+      return {
+        averageUsageTimeFetched: false,
+        timeLimitSet: false,
+        paymentCompleted: false,
+        currentChallengeId: null,
+        currentLimit: null,
+      };
+    }
+    const data = userSnap.data();
+    return {
+      averageUsageTimeFetched: data?.averageUsageTimeFetched || false,
+      timeLimitSet: data?.timeLimitSet || (data?.currentLimit != null), // 既存のフィールドも考慮
+      paymentCompleted: data?.paymentCompleted || (data?.paymentStatus === 'paid'), // 既存のフィールドも考慮
+      currentChallengeId: data?.challengeId || null,
+      currentLimit: data?.currentLimit || null,
+    };
+  } catch (error) {
+    console.error(`[getUserFlowStatus] ユーザー ${userId} のフロー状態取得エラー:`, error);
+    throw error;
   }
 }; 

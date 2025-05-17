@@ -47,9 +47,8 @@ const TimeSettingScreen = () => {
         initialLimitMinutes: parseInt(timeLimit, 10),
       };
       await setUserInitialTimeLimitAndCreateChallenge(settings);
-      Alert.alert('設定完了', '時間の初期設定が完了しました。メイン画面に進みます。');
-      // メイン画面に遷移。HomeScreenはAppStackParamListで定義されている想定
-      navigation.navigate('Home'); 
+      console.log('時間設定完了、支払い画面へ遷移します。');
+      navigation.replace('Deposit');
     } catch (e: any) {
       console.error('時間設定保存エラー:', e);
       Alert.alert('エラー', e.message || '時間設定の保存に失敗しました。');

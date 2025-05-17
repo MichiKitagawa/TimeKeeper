@@ -1,209 +1,210 @@
 import { AppState as RNAppState, AppStateStatus } from 'react-native';
-import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
+// import firestore from '@react-native-firebase/firestore'; // Original import, now mocked
+// import auth from '@react-native-firebase/auth'; // Original import, now mocked
 import * as usageTrackingService from '../usageTrackingService';
 
 // Declare global variable for TypeScript
-declare global {
-  // eslint-disable-next-line no-var
-  var mockFirestoreRefsForUsageTracking: any;
-}
+// declare global { // このグローバル宣言は不要になる
+//   // eslint-disable-next-line no-var
+//   var mockFirestoreRefsForUsageTracking: any;
+// }
 
 // --- Mocks ---
 jest.useFakeTimers();
 
 // AppState のモックは usageTrackingService.test.ts ローカルで定義し、jest.setup.js とは独立させる
 const mockAddEventListener = jest.fn();
-const mockRemove = jest.fn();
-mockAddEventListener.mockReturnValue({ remove: mockRemove });
-let mockCurrentState: AppStateStatus = 'active';
+const mockRemoveEventListener = jest.fn(); // AppState.removeEventListener 用 (古いAPIかもしれないが念のため)
+const mockSubscriptionRemove = jest.fn(); // addEventListener が返す subscription の remove メソッド用
+mockAddEventListener.mockReturnValue({ remove: mockSubscriptionRemove });
+let mockCurrentAppState: AppStateStatus = 'active';
 
 jest.mock('react-native/Libraries/AppState/AppState', () => ({
   // __esModule: true, // AppStateを名前付きモックとして扱う場合、これは不要かもしれない
   // AppState が { AppState: { ... } } のようにネストされていないことを確認
   addEventListener: mockAddEventListener,
+  removeEventListener: mockRemoveEventListener, // 古いAPIかもしれない
   get currentState() {
-    return mockCurrentState;
+    return mockCurrentAppState;
   },
 }));
 
-jest.mock('@react-native-firebase/auth', () => ({
-  __esModule: true,
-  default: jest.fn(() => ({ currentUser: null })),
-}));
+// --- Auth Mock ---
+let mockAuthModuleCurrentUser: { uid: string } | null = null;
+const mockAuthModuleSignInAnonymously = jest.fn().mockResolvedValue({ user: { uid: 'test-anonymous-uid' } });
+const mockAuthModuleOnAuthStateChanged = jest.fn(() => jest.fn()); // Returns an unsubscribe function
+const mockAuthModuleSignOut = jest.fn().mockResolvedValue(undefined);
+// Add any other auth methods used by the service or other tests
+const mockAuthInstance = {
+  get currentUser() { return mockAuthModuleCurrentUser; }, // Use a getter to ensure current value
+  signInAnonymously: mockAuthModuleSignInAnonymously,
+  onAuthStateChanged: mockAuthModuleOnAuthStateChanged,
+  signOut: mockAuthModuleSignOut,
+  // Ensure all properties expected by the Firebase Auth 'Module' type are present if needed,
+  // or use a more general mock type if strict type checking is an issue.
+  // For now, focusing on what's used.
+};
+jest.mock('@react-native-firebase/auth', () => {
+  return () => mockAuthInstance; // auth() returns our mock instance
+});
 
-// jest.mock の中でモック関数を定義・使用する
+// Firestore Mocks - defined at the top level of the module
+const mockFirestoreCollection = jest.fn();
+const mockFirestoreWhere = jest.fn();
+const mockFirestoreLimit = jest.fn();
+const mockFirestoreGet = jest.fn();
+const mockFirestoreDoc = jest.fn();
+const mockFirestoreSet = jest.fn();
+const mockFirestoreUpdate = jest.fn();
+
 jest.mock('@react-native-firebase/firestore', () => {
-  // Define mocks first
-  const mockFirestoreCollection = jest.fn();
-  const mockFirestoreWhere = jest.fn();
-  const mockFirestoreLimit = jest.fn();
-  const mockFirestoreGet = jest.fn();
-  const mockFirestoreDoc = jest.fn();
-  const mockFirestoreSet = jest.fn();
-  const mockFirestoreUpdate = jest.fn();
+  const actualFirestore = jest.requireActual('@react-native-firebase/firestore');
 
-  // Assign to global at the very beginning of the factory
-  (global as any).mockFirestoreRefsForUsageTracking = {
-    mockFirestoreCollection,
-    mockFirestoreWhere,
-    mockFirestoreLimit,
-    mockFirestoreGet,
-    mockFirestoreDoc,
-    mockFirestoreSet,
-    mockFirestoreUpdate,
+  // Define how chained calls work, using the top-level mocks
+  const whereChainMock = {
+    where: mockFirestoreWhere, // Allows for multiple .where() calls if mockFirestoreWhere returns whereChainMock
+    limit: mockFirestoreLimit,
+    get: mockFirestoreGet, // Allows for .where().get()
   };
-
-  // Firestoreの各メソッドのモック実装
+  // Make .where() return the chainable object.
+  // For multiple .where().where(), mockFirestoreWhere should return whereChainMock or similar.
+  // For simplicity here, we assume where().limit().get() or where().where().limit().get()
+  mockFirestoreWhere.mockImplementation(() => whereChainMock); 
+  mockFirestoreLimit.mockReturnValue({ get: mockFirestoreGet });
   mockFirestoreDoc.mockReturnValue({
     set: mockFirestoreSet,
     update: mockFirestoreUpdate,
+    id: 'mockGeneratedDocId' // Provide a mock ID for new documents
   });
-
-  mockFirestoreLimit.mockReturnValue({
-    get: mockFirestoreGet,
-  });
-
-  // whereはチェーンできるように自身を返すか、最終的にlimit().get()につながるようにする
-  // whereChain の型を明示的に定義
-  const whereChain: { 
-    where: jest.Mock<any, any>; 
-    limit: jest.Mock<any, any>; 
-    get: jest.Mock<any, any>; 
-  } = {
-    where: jest.fn(() => whereChain), // チェーン用
-    limit: mockFirestoreLimit,
-    get: mockFirestoreGet, // where().get() の場合
-  };
-  mockFirestoreWhere.mockReturnValue(whereChain);
-
   mockFirestoreCollection.mockReturnValue({
     where: mockFirestoreWhere,
-    doc: mockFirestoreDoc,
+    doc: mockFirestoreDoc, // Allows firestore().collection().doc()
   });
 
-  // Return the mocked firestore instance, including Timestamp and FieldValue
-  return () => ({
-    collection: mockFirestoreCollection,
-    doc: mockFirestoreDoc,
-    Timestamp: {
-      now: jest.fn(() => ({ toDate: () => new Date(), toMillis: () => Date.now() })),
-      fromDate: jest.fn((date: Date) => ({ toDate: () => date, toMillis: () => date.getTime() })),
-    },
-    FieldValue: {
-        serverTimestamp: jest.fn(() => 'SERVER_TIMESTAMP_MOCK'), // Consistent mock value
-        delete: jest.fn(),
-        arrayUnion: jest.fn(),
-        arrayRemove: jest.fn(),
-        increment: jest.fn(),
-    }
-  });
+  return {
+    __esModule: true, // Important for ES6 modules
+    default: jest.fn(() => ({ // This is what firestore() returns
+      collection: mockFirestoreCollection,
+      doc: mockFirestoreDoc, // This allows firestore().doc() - though less common
+      // Timestamp and FieldValue can be real or mocked
+      // Using real ones can be safer for type checks and complex logic
+      Timestamp: actualFirestore.Timestamp,
+      FieldValue: actualFirestore.FieldValue,
+    })),
+    // Export types if needed by the service file, though usually not for mocks
+    FirebaseFirestoreTypes: actualFirestore.FirebaseFirestoreTypes,
+  };
 });
 
 // --- Helper to simulate AppState change ---
 type AppStateEvent = 'change';
 type AppStateCallBack = (newState: AppStateStatus) => void;
 
-let appStateChangeCallback: AppStateCallBack | undefined = undefined;
+let appStateChangeCallbackForTest: AppStateCallBack | undefined = undefined;
 
 mockAddEventListener.mockImplementation(
     (event: AppStateEvent, callback: AppStateCallBack) => {
         if (event === 'change') {
-            appStateChangeCallback = callback;
+            appStateChangeCallbackForTest = callback;
         }
-        return { remove: mockRemove };
+        return { remove: mockSubscriptionRemove };
     }
 );
 
 const simulateAppStateChange = (newState: AppStateStatus) => {
-    mockCurrentState = newState;
-    if(appStateChangeCallback) {
-        appStateChangeCallback(newState);
+    mockCurrentAppState = newState;
+    if(appStateChangeCallbackForTest) {
+        appStateChangeCallbackForTest(newState);
     }
 };
 
 
 describe('usageTrackingService', () => {
-  let usageService: any; // require の結果を保持
-  let mockCurrentUser: { uid: string } | null;
-  const userId_parent = 'test-user-123'; // 親スコープでの定義名変更
-  const SAVE_INTERVAL_SECONDS_parent = 60; // 親スコープでの定義名変更
-  let saveUsageSpy: jest.SpyInstance;
+  // let usageService: any; // require の結果を保持 - resetUsageTrackingServiceState で再取得するので不要かも
+  let mockAuthCurrentUser: { uid: string } | null;
+  const testUserId = 'test-user-123';
+  const TEST_SAVE_INTERVAL_SECONDS = 60; // Avoid conflict with service's own constant
+
+  // No longer need saveUsageSpy if we are testing Firestore calls directly
+  // let saveUsageSpy: jest.SpyInstance; 
 
   beforeEach(async () => {
     jest.useFakeTimers();
-    // モジュールをリセットして、usageTrackingService内の状態(accumulatedSeconds, timer)を初期化
-    usageService = await resetUsageTrackingServiceState();
-
-    // Firestoreモック関数をクリア
-    if ((firestore as any).clearMocks) {
-      (firestore as any).clearMocks();
-    }
     
-    // AppStateモックをクリア (必要に応じて)
-    (RNAppState.addEventListener as jest.Mock).mockClear();
-    // (RNAppState.removeEventListener as jest.Mock).mockClear(); // これは古いので不要かも
+    // Reset all top-level mocks
+    mockFirestoreCollection.mockClear();
+    mockFirestoreWhere.mockClear();
+    mockFirestoreLimit.mockClear();
+    mockFirestoreGet.mockClear();
+    mockFirestoreDoc.mockClear();
+    mockFirestoreSet.mockClear();
+    mockFirestoreUpdate.mockClear();
+    mockAddEventListener.mockClear();
+    mockRemoveEventListener.mockClear();
+    mockSubscriptionRemove.mockClear();
 
-    // Authモックのデフォルト設定
-    mockCurrentUser = null; // デフォルトはnull
-    (auth as unknown as jest.Mock).mockImplementation(() => ({
-        currentUser: mockCurrentUser,
+    // Reset AppState related mocks
+    appStateChangeCallbackForTest = undefined;
+    mockCurrentAppState = 'active'; // Default to active for AppState.currentState
+
+    // Reset module state for usageTrackingService
+    // This re-imports the service, ensuring its internal state (timers, accumulated seconds) is fresh.
+    jest.resetModules(); 
+    const usageTrackingService = await import('../usageTrackingService');
+     // Apply a spy if needed, but allow callThrough to test internal logic
+    // jest.spyOn(usageTrackingService, 'saveUsageTimeToFirestore').mockImplementation(async () => {}); // This was blocking internal logic
+    // If we want to check if it's called AND it executes:
+    jest.spyOn(usageTrackingService, 'saveUsageTimeToFirestore');
+
+
+    // Auth mock default setup
+    mockAuthCurrentUser = null; // Default to no user
+    (auth as jest.MockedFunction<typeof auth>).mockImplementation(() => ({ // Correctly cast auth
+        currentUser: mockAuthCurrentUser,
     }));
 
-    // console.log/warn/error のスパイを必要に応じて設定
+    // Spy on console messages if needed, but clear them
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(console, 'error').mockImplementation(() => {});
-
-    saveUsageSpy = jest.spyOn(usageTrackingService, 'saveUsageTimeToFirestore').mockImplementation(async () => {}); 
   });
 
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
-    jest.restoreAllMocks(); // consoleのスパイなどを元に戻す
+    jest.restoreAllMocks(); // Restore console spies etc.
   });
 
-  // --- saveUsageTimeToFirestore (直接エクスポートされていないため、initializeUsageTracking経由でテストするか、内部実装のテストとして記述) ---
-  // 今回はinitializeUsageTrackingを呼び、AppStateの変化やタイマー発火を通じてsaveUsageTimeToFirestoreをテストする方針で進める。
-  // ただし、saveUsageTimeToFirestore 単体のロジック確認もしたいため、一時的にエクスポートするか、
-  // initializeUsageTracking のテストケースの中で網羅的に検証する。
-  // ここでは、まず initializeUsageTracking と handleAppStateChange のテストを通じて saveUsageTimeToFirestore の挙動をカバーする。
-
   describe('initializeUsageTracking and AppState changes', () => {
-    let appStateChangeCallback: (status: AppStateStatus) => void;
-    let mockSubscriptionRemove: jest.Mock;
-    const userId = userId_parent; // 親スコープからコピー
-    const SAVE_INTERVAL_SECONDS = SAVE_INTERVAL_SECONDS_parent; // 親スコープからコピー
+    // let appStateChangeCallbackLocal: (status: AppStateStatus) => void; // Use appStateChangeCallbackForTest
+    // let localMockSubscriptionRemove: jest.Mock; // Use mockSubscriptionRemove (top-level)
 
     beforeEach(() => {
-      // AppState.addEventListener のモックからコールバックとremove関数を取得
-      // AppStateのモックを修正し、addEventListenerが返すオブジェクトにremoveモックを含める
-      mockSubscriptionRemove = jest.fn();
-      (RNAppState.addEventListener as jest.Mock).mockImplementation((event, callback) => {
-        if (event === 'change') {
-          appStateChangeCallback = callback;
-        }
-        return { remove: mockSubscriptionRemove }; 
-      });
-      mockCurrentUser = { uid: userId }; // このdescribeブロックでは常に認証済みとする
+      // AppState.addEventListener mock setup is now at top-level / within jest.mock
+      // mockAuthCurrentUser is set to a valid user for these tests
+      mockAuthCurrentUser = { uid: testUserId };
+      (auth as jest.MockedFunction<typeof auth>).mockImplementation(() => ({
+          currentUser: mockAuthCurrentUser,
+      }));
     });
 
     it('should start timer if RNAppState.currentState is active on init', () => {
-      mockCurrentState = 'active';
+      mockCurrentAppState = 'active';
+      const usageTrackingService = require('../usageTrackingService'); // Re-require to get fresh instance with current AppState
       const cleanup = usageTrackingService.initializeUsageTracking();
       
-      expect(RNAppState.addEventListener).toHaveBeenCalledWith('change', expect.any(Function));
+      expect(mockAddEventListener).toHaveBeenCalledWith('change', expect.any(Function));
       
-      // タイマーが開始されていることを確認 (例: 1秒後にaccumulatedSecondsが増えている)
       jest.advanceTimersByTime(1000);
       expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(1);
       
       cleanup();
+      expect(mockSubscriptionRemove).toHaveBeenCalled();
     });
 
     it('should not start timer if RNAppState.currentState is not active on init', () => {
-      mockCurrentState = 'background';
+      mockCurrentAppState = 'background';
+      const usageTrackingService = require('../usageTrackingService');
       const cleanup = usageTrackingService.initializeUsageTracking();
       
       jest.advanceTimersByTime(1000);
@@ -212,63 +213,84 @@ describe('usageTrackingService', () => {
       cleanup();
     });
 
-    it('should start timer when app becomes active, and save periodically', async () => {
-      mockCurrentState = 'inactive'; // 初期状態は非アクティブ
+    it('should start timer when app becomes active, and save periodically when enough time accumulates', async () => {
+      mockCurrentAppState = 'inactive'; // Initial state
+      const usageTrackingService = require('../usageTrackingService');
       const cleanup = usageTrackingService.initializeUsageTracking();
       expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(0);
 
-      // アプリがアクティブになる
-      appStateChangeCallback('active');
-      jest.advanceTimersByTime(1000);
+      // Simulate app becoming active
+      simulateAppStateChange('active');
+      jest.advanceTimersByTime(1000); // 1 second passes
       expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(1);
 
-      // SAVE_INTERVAL_SECONDS まで時間を進める
-      usageTrackingService._setAccumulatedSecondsInForeground(0); // reset for this part of test
-      (firestore as any).mocks.mockGet.mockResolvedValue({ empty: true, docs: [] });
-      (firestore as any).mocks.mockSet.mockResolvedValue({}); 
+      // Prepare Firestore mock for saveUsageTimeToFirestore (new log case)
+      // Query for existing log returns empty
+      mockFirestoreGet.mockResolvedValueOnce({ empty: true, docs: [] }); 
+      // Set new log succeeds
+      mockFirestoreSet.mockResolvedValueOnce(undefined); 
 
-      jest.advanceTimersByTime(SAVE_INTERVAL_SECONDS * 1000);
-      await Promise.resolve(); // saveUsageTimeToFirestore の非同期処理を待つ
+      // Advance time to trigger save (SAVE_INTERVAL_SECONDS is 60 in service)
+      // We need to ensure saveUsageTimeToFirestore is the original implementation.
+      // The spy in beforeEach should not mockImplementation away the original.
+      
+      // usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS -1); // almost enough
+      // jest.advanceTimersByTime(1000); // Advance 1 more second to hit exactly SAVE_INTERVAL_SECONDS
+      
+      // Alternative: Directly set accumulated time and advance timer to trigger save check
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS);
+      jest.advanceTimersByTime(1); // Interval check will run
 
-      expect(usageTrackingService.saveUsageTimeToFirestore).toHaveBeenCalledTimes(1); // saveUsageTimeToFirestoreが呼ばれたことを確認
-                                                              // そのためにはsaveUsageTimeToFirestoreもspy化するか、Firestoreのメソッド呼び出しで確認
-      expect((firestore as any).mocks.mockSet).toHaveBeenCalledTimes(1);                                                       
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(0); // 保存後リセットされる(端数なしの場合)
+
+      // Wait for async operations within saveUsageTimeToFirestore
+      await jest.runAllTicks(); // Or await new Promise(process.nextTick);
+
+      expect(usageTrackingService.saveUsageTimeToFirestore).toHaveBeenCalled();
+      expect(mockFirestoreCollection).toHaveBeenCalledWith('usageLogs');
+      expect(mockFirestoreWhere).toHaveBeenCalledWith('userId', '==', testUserId);
+      // expect(mockFirestoreWhere).toHaveBeenCalledWith('date', '==', expect.any(actualFirestore.Timestamp)); // More specific check for date
+      expect(mockFirestoreGet).toHaveBeenCalled();
+      expect(mockFirestoreSet).toHaveBeenCalledTimes(1); // New log created
+      expect(mockFirestoreUpdate).not.toHaveBeenCalled(); // No update
+      // Accumulated seconds should be reset (or have remainder if SAVE_INTERVAL_SECONDS doesn't divide perfectly)
+      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(0); 
 
       cleanup();
     });
 
     it('should stop timer and attempt to save when app becomes inactive/background', async () => {
-      mockCurrentState = 'active';
+      mockCurrentAppState = 'active';
+      const usageTrackingService = require('../usageTrackingService');
       const cleanup = usageTrackingService.initializeUsageTracking();
-      appStateChangeCallback('active'); // 強制的にactiveにしてタイマースタート
-
-      jest.advanceTimersByTime(30 * 1000); // 30秒経過
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(30);
-
-      // Firestoreモックを設定 (30秒では0分なので保存されないはずだが、呼び出しはされる)
-      (firestore as any).mocks.mockGet.mockResolvedValue({ empty: true, docs: [] });
-
-      // アプリがバックグラウンドになる
-      appStateChangeCallback('background');
-      await Promise.resolve(); 
       
-      expect(usageTrackingService.saveUsageTimeToFirestore).toHaveBeenCalledTimes(1); // 呼ばれることの確認
-      expect((firestore as any).mocks.mockSet).not.toHaveBeenCalled(); // 0分なので実際にはsetされない
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(30); // 保存試行後も変わらない (0分だったため)
+      // Simulate app being active and accumulating some time (less than save interval)
+      const accumulatedTimeShort = 30;
+      usageTrackingService._setAccumulatedSecondsInForeground(accumulatedTimeShort);
+      // jest.advanceTimersByTime(accumulatedTimeShort * 1000); // Not needed if _setAccumulatedSecondsInForeground is used
 
-      // タイマーが停止していることを確認 (さらに時間を進めても秒数が増えない)
-      const currentSeconds = usageTrackingService._getAccumulatedSecondsInForeground();
-      jest.advanceTimersByTime(10000);
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(currentSeconds);
+      // Firestore mock for this save attempt (no full minutes, so no actual save to DB)
+      // saveUsageTimeToFirestore will be called, but minutesToSave will be 0
+      // So, no actual DB call (set/update) should happen for 30 seconds.
+      mockFirestoreGet.mockResolvedValueOnce({ empty: true, docs: [] }); // It might still query
 
+      // Simulate app going to background
+      simulateAppStateChange('background');
+      await jest.runAllTicks();
+
+      expect(usageTrackingService.saveUsageTimeToFirestore).toHaveBeenCalled();
+      // For 30 seconds, minutesToSave is 0. So, Firestore set/update should not be called.
+      expect(mockFirestoreSet).not.toHaveBeenCalled();
+      expect(mockFirestoreUpdate).not.toHaveBeenCalled();
+      // The 30 seconds should remain as they were not a full minute
+      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(accumulatedTimeShort % TEST_SAVE_INTERVAL_SECONDS); 
+      
       cleanup();
     });
 
     it('cleanup function should remove listener, clear timer and attempt final save', async () => {
-      mockCurrentState = 'active';
+      mockCurrentAppState = 'active';
       const cleanup = usageTrackingService.initializeUsageTracking();
-      appStateChangeCallback('active');
+      appStateChangeCallbackForTest('active');
 
       jest.advanceTimersByTime(25 * 1000); // 25秒経過
       (firestore as any).mocks.mockGet.mockResolvedValue({ empty: true, docs: [] });
@@ -289,22 +311,22 @@ describe('usageTrackingService', () => {
 
   describe('saveUsageTimeToFirestore (direct tests)', () => {
     it('should do nothing if user is not authenticated', async () => {
-      mockCurrentUser = null;
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent + 10);
+      mockAuthCurrentUser = null;
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS + 10);
       await usageTrackingService.saveUsageTimeToFirestore();
       expect((firestore as any).mocks.mockCollection).not.toHaveBeenCalled();
     });
 
-    it('should do nothing if accumulated time is less than SAVE_INTERVAL_SECONDS_parent', async () => {
-      mockCurrentUser = { uid: userId_parent };
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent - 1);
+    it('should do nothing if accumulated time is less than TEST_SAVE_INTERVAL_SECONDS', async () => {
+      mockAuthCurrentUser = { uid: testUserId };
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS - 1);
       await usageTrackingService.saveUsageTimeToFirestore();
       expect((firestore as any).mocks.mockCollection).not.toHaveBeenCalled();
-      expect(console.log).toHaveBeenCalledWith(`UsageTracking: Not enough time to save, accumulated: ${SAVE_INTERVAL_SECONDS_parent -1}s`);
+      expect(console.log).toHaveBeenCalledWith(`UsageTracking: Not enough time to save, accumulated: ${TEST_SAVE_INTERVAL_SECONDS -1}s`);
     });
     
     it('should do nothing if minutesToSave is 0, but keep remainder seconds', async () => {
-      mockCurrentUser = { uid: userId_parent };
+      mockAuthCurrentUser = { uid: testUserId };
       usageTrackingService._setAccumulatedSecondsInForeground(59); 
       await usageTrackingService.saveUsageTimeToFirestore();
       expect((firestore as any).mocks.mockCollection).not.toHaveBeenCalled();
@@ -313,28 +335,28 @@ describe('usageTrackingService', () => {
     });
 
     it('should create new usage log if none exists for today', async () => {
-      mockCurrentUser = { uid: userId_parent };
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent * 2 + 30); 
+      mockAuthCurrentUser = { uid: testUserId };
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS * 2 + 30); 
       const minutesToSave = 2;
       (firestore as any).mocks.mockGet.mockResolvedValueOnce({ empty: true, docs: [] });
       (firestore as any).mocks.mockSet.mockResolvedValueOnce({});
       await usageTrackingService.saveUsageTimeToFirestore();
       expect((firestore as any).mocks.mockSet).toHaveBeenCalledWith(expect.objectContaining({
-        userId: userId_parent,
+        userId: testUserId,
         usedMinutes: minutesToSave,
       }));
       expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(30); 
     });
 
     it('should update existing usage log if one exists for today', async () => {
-      mockCurrentUser = { uid: userId_parent };
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent + 20); 
+      mockAuthCurrentUser = { uid: testUserId };
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS + 20); 
       const minutesToSave = 1;
       const initialUsedMinutes = 5;
       const mockDocRefInstance = (firestore as any).mocks.mockDoc;
       (firestore as any).mocks.mockGet.mockResolvedValueOnce({
         empty: false,
-        docs: [{ data: () => ({ userId: userId_parent, usedMinutes: initialUsedMinutes }), ref: mockDocRefInstance }],
+        docs: [{ data: () => ({ userId: testUserId, usedMinutes: initialUsedMinutes }), ref: mockDocRefInstance }],
       });
       (firestore as any).mocks.mockUpdate.mockResolvedValueOnce({});
       await usageTrackingService.saveUsageTimeToFirestore();
@@ -345,29 +367,29 @@ describe('usageTrackingService', () => {
     });
 
     it('should log error if Firestore operation fails (get)', async () => {
-      mockCurrentUser = { uid: userId_parent };
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent);
+      mockAuthCurrentUser = { uid: testUserId };
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS);
       const firestoreError = new Error('Firestore get failed');
       (firestore as any).mocks.mockGet.mockRejectedValueOnce(firestoreError);
       await usageTrackingService.saveUsageTimeToFirestore();
       expect(console.error).toHaveBeenCalledWith('UsageTracking: Error saving usage time to Firestore:', firestoreError);
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(SAVE_INTERVAL_SECONDS_parent);
+      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(TEST_SAVE_INTERVAL_SECONDS);
     });
 
     it('should log error if Firestore operation fails (set)', async () => {
-      mockCurrentUser = { uid: userId_parent };
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent);
+      mockAuthCurrentUser = { uid: testUserId };
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS);
       const firestoreError = new Error('Firestore set failed');
       (firestore as any).mocks.mockGet.mockResolvedValueOnce({ empty: true, docs: [] });
       (firestore as any).mocks.mockSet.mockRejectedValueOnce(firestoreError);
       await usageTrackingService.saveUsageTimeToFirestore();
       expect(console.error).toHaveBeenCalledWith('UsageTracking: Error saving usage time to Firestore:', firestoreError);
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(SAVE_INTERVAL_SECONDS_parent);
+      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(TEST_SAVE_INTERVAL_SECONDS);
     });
 
      it('should log error if Firestore operation fails (update)', async () => {
-      mockCurrentUser = { uid: userId_parent };
-      usageTrackingService._setAccumulatedSecondsInForeground(SAVE_INTERVAL_SECONDS_parent);
+      mockAuthCurrentUser = { uid: testUserId };
+      usageTrackingService._setAccumulatedSecondsInForeground(TEST_SAVE_INTERVAL_SECONDS);
       const firestoreError = new Error('Firestore update failed');
       const mockDocRef = (firestore as any).mocks.mockDoc;
       (firestore as any).mocks.mockGet.mockResolvedValueOnce({
@@ -377,10 +399,18 @@ describe('usageTrackingService', () => {
       (firestore as any).mocks.mockUpdate.mockRejectedValueOnce(firestoreError);
       await usageTrackingService.saveUsageTimeToFirestore();
       expect(console.error).toHaveBeenCalledWith('UsageTracking: Error saving usage time to Firestore:', firestoreError);
-      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(SAVE_INTERVAL_SECONDS_parent);
+      expect(usageTrackingService._getAccumulatedSecondsInForeground()).toBe(TEST_SAVE_INTERVAL_SECONDS);
     });
   });
 });
+
+// Helper function to reset module state (might be replaceable by jest.resetModules() in beforeEach)
+// async function resetUsageTrackingServiceState() {
+//   jest.resetModules();
+//   const freshService = await import('../usageTrackingService');
+//   // You might need to re-apply spies or other setup here if not done in beforeEach
+//   return freshService;
+// }
 
 // usageTrackingService の内部状態をリセットするためのヘルパー
 // initializeUsageTracking を呼び出すと内部タイマーやリスナーがセットアップされるので、

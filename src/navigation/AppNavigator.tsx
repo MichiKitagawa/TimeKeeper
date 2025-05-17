@@ -2,7 +2,7 @@ import React, { useState, useEffect, createContext, useContext, ReactNode } from
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
-import { isUserInactive, getUserPaymentStatus } from '../services/userService';
+import { ensureUserDocument, getUserFlowStatus } from '../services/userService';
 
 import AuthLoadingScreen from '../screens/AuthLoadingScreen';
 import LoginScreen from '../screens/LoginScreen';
@@ -11,12 +11,14 @@ import DepositScreen from '../screens/DepositScreen';
 import TimeSettingScreen from '../screens/TimeSettingScreen';
 import LockScreen from '../screens/LockScreen';
 import CompletionScreen from '../screens/CompletionScreen';
+import AverageUsageScreen from '../screens/AverageUsageScreen';
 
 // ナビゲーションパラメータリスト
 export type AppStackParamList = {
   Home: undefined;
   Deposit: undefined;
   TimeSettingScreen: undefined;
+  AverageUsageScreen: undefined;
   LockScreen: undefined;
   CompletionScreen: { challengeId: string };
   // 他のApp内スクリーンもここに追加
@@ -74,6 +76,7 @@ const AppStackScreens = ({ initialRoute = 'Home' }: { initialRoute?: keyof AppSt
     <Stack.Screen name="Home" component={MainScreen} options={{ title: 'メイン' }} />
     <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '利用料支払い' }} />
     <Stack.Screen name="TimeSettingScreen" component={TimeSettingScreen} options={{ title: '時間設定' }}/>
+    <Stack.Screen name="AverageUsageScreen" component={AverageUsageScreen} options={{ title: '平均利用時間' }} />
     <Stack.Screen name="LockScreen" component={LockScreen} options={{ title: 'ロック中', headerShown: false }} />
     <Stack.Screen name="CompletionScreen" component={CompletionScreen} options={{ title: 'チャレンジ完了', headerShown: false }} />
     {/* Add other app screens here */}
@@ -83,47 +86,67 @@ const AppStackScreens = ({ initialRoute = 'Home' }: { initialRoute?: keyof AppSt
 const AppNavigator = () => {
   const { user, isLoading } = useAuth();
   const [isCheckingUserStatus, setIsCheckingUserStatus] = useState(true);
-  const [requiresPayment, setRequiresPayment] = useState(false);
   const [initialRouteName, setInitialRouteName] = useState<keyof AppStackParamList>('Home');
+  const [appError, setAppError] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkUserStatus = async () => {
+    const checkUserStatusAndSetup = async () => {
+      console.log('[AppNavigator] useEffect triggered. User:', user, 'isLoading:', isLoading);
+
       if (user && !isLoading) {
+        console.log('[AppNavigator] User authenticated. Starting status check.');
+        setIsCheckingUserStatus(true);
+        setAppError(null);
         try {
-          const inactive = await isUserInactive();
-          const paymentInfo = await getUserPaymentStatus();
+          console.log('[AppNavigator] Calling ensureUserDocument...');
+          await ensureUserDocument(user.uid);
+          console.log('[AppNavigator] ensureUserDocument completed.');
 
-          const needsInitialPayment = !paymentInfo || paymentInfo.status !== 'paid';
+          console.log('[AppNavigator] Calling getUserFlowStatus...');
+          const userStatus = await getUserFlowStatus(user.uid);
+          console.log('[AppNavigator] getUserFlowStatus completed. Result:', userStatus);
+          const { averageUsageTimeFetched, timeLimitSet, paymentCompleted } = userStatus;
 
-          if (inactive || needsInitialPayment) {
-            setRequiresPayment(true);
+          if (!averageUsageTimeFetched) {
+            console.log('[AppNavigator] Navigating to AverageUsageScreen.');
+            setInitialRouteName('AverageUsageScreen');
+          } else if (!timeLimitSet) {
+            console.log('[AppNavigator] Navigating to TimeSettingScreen.');
+            setInitialRouteName('TimeSettingScreen');
+          } else if (!paymentCompleted) {
+            console.log('[AppNavigator] Navigating to Deposit.');
             setInitialRouteName('Deposit');
           } else {
-            setRequiresPayment(false);
+            console.log('[AppNavigator] Navigating to Home.');
             setInitialRouteName('Home');
           }
-        } catch (error) {
-          console.error("Error checking user status:", error);
-          // エラー時は安全のため支払い画面に誘導することも検討できるが、
-          // ここではメイン画面に進ませる（ただし、isUserInactiveやgetUserPaymentStatus内でエラーが起きた場合の挙動による）
-          setRequiresPayment(false); 
+
+        } catch (error: any) {
+          console.error("[AppNavigator] Error during user status check or setup:", error);
+          setAppError(`データ取得エラー: ${error.message || '不明なエラー'}`);
           setInitialRouteName('Home');
+        } finally {
+          console.log('[AppNavigator] Setting isCheckingUserStatus to false.');
+          setIsCheckingUserStatus(false);
         }
-        setIsCheckingUserStatus(false);
       } else if (!isLoading) {
+        console.log('[AppNavigator] User not authenticated or loading finished. Setting isCheckingUserStatus to false.');
         setIsCheckingUserStatus(false);
-        setRequiresPayment(false);
-        setInitialRouteName('Home');
+        setAppError(null);
+      } else {
+        console.log('[AppNavigator] Still loading user auth state.');
       }
     };
 
-    checkUserStatus();
+    checkUserStatusAndSetup();
   }, [user, isLoading]);
 
   if (isLoading || isCheckingUserStatus) {
+    console.log('[AppNavigator] Showing AuthLoadingScreen. isLoading:', isLoading, 'isCheckingUserStatus:', isCheckingUserStatus);
     return <AuthLoadingScreen />;
   }
 
+  console.log('[AppNavigator] Rendering main navigation. Initial route:', initialRouteName);
   return (
     <NavigationContainer>
       {user ? (

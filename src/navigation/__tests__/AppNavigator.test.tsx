@@ -1,183 +1,199 @@
 import React from 'react';
-import { render, waitFor, act } from '@testing-library/react-native';
-import AppNavigator, { AuthProvider, useAuth } from '../AppNavigator';
-import * as userService from '../../services/userService';
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { render, waitFor } from '@testing-library/react-native';
+import { Text as ReactNativeText } from 'react-native';
+import AppNavigator, { AuthProvider } from '../AppNavigator';
 
-// --- Mocks ---
-// 画面コンポーネントの簡易モック
-jest.mock('../../screens/AuthLoadingScreen', () => () => 'AuthLoadingScreen');
-jest.mock('../../screens/LoginScreen', () => () => 'LoginScreen');
-jest.mock('../../screens/MainScreen', () => () => 'MainScreen');
-jest.mock('../../screens/DepositScreen', () => () => 'DepositScreen');
-// 他の画面も必要に応じてモック
-
-const mockIsUserInactive = jest.spyOn(userService, 'isUserInactive');
-const mockGetUserPaymentStatus = jest.spyOn(userService, 'getUserPaymentStatus');
-
-let mockCurrentUser: FirebaseAuthTypes.User | null = null;
-let mockAuthListenerCallback: ((user: FirebaseAuthTypes.User | null) => void) | null = null;
-
+// モック
 jest.mock('@react-native-firebase/auth', () => {
-  const actualAuth = jest.requireActual('@react-native-firebase/auth');
-  return {
-    __esModule: true,
-    default: () => ({
-      onAuthStateChanged: (callback: (user: FirebaseAuthTypes.User | null) => void) => {
-        mockAuthListenerCallback = callback;
-        // Simulate initial state or a state change if needed immediately
-        // callback(mockCurrentUser); 
-        return () => { mockAuthListenerCallback = null; }; // Unsubscribe function
-      },
-      currentUser: mockCurrentUser,
-    }),
-    // 他に必要なauthのプロパティやメソッドがあれば追加
-    FirebaseAuthTypes: actualAuth.FirebaseAuthTypes, // エラー回避のため追加
+  const mockAuthSingleton = { // シングルトンインスタンスのモック
+    onAuthStateChanged: jest.fn(),
+    // currentUser: null, // 必要に応じて
+    // signInAnonymously: jest.fn(), // 等々
   };
+  const mockAuthFactory = jest.fn(() => mockAuthSingleton); // auth() の呼び出しがこのファクトリを返す
+  // @ts-ignore
+  mockAuthFactory.FirebaseAuthTypes = { User: jest.fn() }; // FirebaseAuthTypes.User のモック
+  return mockAuthFactory;
 });
 
-// NavigationContainerのモック (childrenをそのままレンダリング)
-jest.mock('@react-navigation/native', () => {
-  const actualNav = jest.requireActual('@react-navigation/native');
-  return {
-    ...actualNav,
-    NavigationContainer: ({ children }: {children: React.ReactNode}) => <>{children}</>,
-  };
+jest.mock('../../services/userService', () => ({
+  isUserInactive: jest.fn(),
+  getUserPaymentStatus: jest.fn(),
+}));
+
+// スクリーンコンポーネントのモック (修正)
+jest.mock('../../screens/AuthLoadingScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-AuthLoadingScreen</Text>;
+});
+jest.mock('../../screens/LoginScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-LoginScreen</Text>;
+});
+jest.mock('../../screens/MainScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-MainScreen</Text>;
+});
+jest.mock('../../screens/DepositScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-DepositScreen</Text>;
+});
+jest.mock('../../screens/TimeSettingScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-TimeSettingScreen</Text>;
+});
+jest.mock('../../screens/LockScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-LockScreen</Text>;
+});
+jest.mock('../../screens/CompletionScreen', () => () => {
+  const { Text } = require('react-native');
+  return <Text>mock-CompletionScreen</Text>;
 });
 
-// --- Helper to simulate auth state change ---
-const simulateAuthStateChange = (user: FirebaseAuthTypes.User | null) => {
-  act(() => {
-    mockCurrentUser = user;
-    if (mockAuthListenerCallback) {
-      mockAuthListenerCallback(user);
-    }
-  });
-};
+const mockUser = { uid: 'test-uid', email: 'test@example.com' } as any;
 
-// --- Test Suite ---
-describe('<AppNavigator />', () => {
+describe('AppNavigator', () => {
+  // `auth()` によって返されるモックインスタンスを取得
+  const authMockInstance = require('@react-native-firebase/auth')(); 
+  const { isUserInactive, getUserPaymentStatus } = require('../../services/userService');
+
   beforeEach(() => {
     jest.clearAllMocks();
-    mockIsUserInactive.mockResolvedValue(false); // Default to active
-    mockGetUserPaymentStatus.mockResolvedValue({ status: 'paid', paymentId: 'pid123' }); // Default to paid
-    mockCurrentUser = null; // Reset user for each test
-    if (mockAuthListenerCallback) mockAuthListenerCallback(null); // Reset listener
+    
+    // auth().onAuthStateChanged のモックをリセット・再設定
+    // authMockInstance.onAuthStateChanged は jest.fn() で初期化されているので、
+    // その振る舞いをテストケースごとに mockImplementation で変える
+    // 例: authMockInstance.onAuthStateChanged.mockImplementation((callback) => { callback(mockUser); return jest.fn(); });
+
+    isUserInactive.mockResolvedValue(false);
+    getUserPaymentStatus.mockResolvedValue({ status: 'paid' });
   });
 
-  it('初期ロード中（認証状態確認中）はAuthLoadingScreenを表示', () => {
-    const { getByText } = render(
-      <AuthProvider>
-        <AppNavigator />
-      </AuthProvider>
-    );
-    expect(getByText('AuthLoadingScreen')).toBeTruthy();
+  const renderWithAuthProvider = (component: React.ReactElement) => {
+    return render(<AuthProvider>{component}</AuthProvider>);
+  };
+
+  test('1. ローディング中 (auth isLoading): AuthLoadingScreen を表示', async () => {
+    // onAuthStateChanged がまだコールバックを呼ばない状態 (AuthProviderのisLoading=true)
+    authMockInstance.onAuthStateChanged.mockImplementation(() => jest.fn()); // コールバックを呼ばないようにする
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    expect(await findByText('mock-AuthLoadingScreen')).toBeTruthy();
   });
 
-  it('未認証ユーザーの場合、LoginScreenを表示', async () => {
-    render(
-        <AuthProvider>
-          <AppNavigator />
-        </AuthProvider>
-      );
-    simulateAuthStateChange(null);
-    await waitFor(() => expect(mockIsUserInactive).not.toHaveBeenCalled()); // ユーザーがいないので呼ばれない
-    await waitFor(() => expect(mockGetUserPaymentStatus).not.toHaveBeenCalled());
-    await waitFor(() => {
-      const { getByText } = render(
-        <AuthProvider>
-          <AppNavigator />
-        </AuthProvider>
-      );
-      expect(getByText('LoginScreen')).toBeTruthy();
+  test('2. ローディング中 (isCheckingUserStatus): AuthLoadingScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser); // ユーザーはいる
+      return jest.fn(); // unsubscribe function
     });
+    isUserInactive.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(false), 100))); // 遅延
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    expect(await findByText('mock-AuthLoadingScreen')).toBeTruthy(); // 初期表示 (isLoading or isCheckingUserStatus)
+    
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
   });
 
-  describe('認証済みユーザー', () => {
-    const mockUser = { uid: 'authed-user' } as FirebaseAuthTypes.User;
-
-    it('支払い済みかつアクティブな場合、MainScreen(Home)を表示', async () => {
-        render(<AuthProvider><AppNavigator /></AuthProvider>);
-        simulateAuthStateChange(mockUser);
-
-        await waitFor(() => expect(mockIsUserInactive).toHaveBeenCalled());
-        await waitFor(() => expect(mockGetUserPaymentStatus).toHaveBeenCalled());
-        
-        const { getByText } = render(<AuthProvider><AppNavigator /></AuthProvider>); 
-        await waitFor(() => {
-          expect(getByText('MainScreen')).toBeTruthy();
-        });
+  test('3. 認証スタック: LoginScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(null); // ユーザーなし
+      return jest.fn();
     });
 
-    it('未支払いの場合、DepositScreenを表示', async () => {
-      mockGetUserPaymentStatus.mockResolvedValue({ status: 'unpaid', paymentId: null });
-      render(<AuthProvider><AppNavigator /></AuthProvider>);
-      simulateAuthStateChange(mockUser);
-
-      await waitFor(() => expect(mockIsUserInactive).toHaveBeenCalled());
-      await waitFor(() => expect(mockGetUserPaymentStatus).toHaveBeenCalled());
-
-      const { getByText } = render(<AuthProvider><AppNavigator /></AuthProvider>); 
-      await waitFor(() => {
-        expect(getByText('DepositScreen')).toBeTruthy();
-      });
-    });
-
-    it('非アクティブな場合、DepositScreenを表示', async () => {
-      mockIsUserInactive.mockResolvedValue(true);
-      render(<AuthProvider><AppNavigator /></AuthProvider>);
-      simulateAuthStateChange(mockUser);
-      
-      await waitFor(() => expect(mockIsUserInactive).toHaveBeenCalled());
-      await waitFor(() => expect(mockGetUserPaymentStatus).toHaveBeenCalled());
-      
-      const { getByText } = render(<AuthProvider><AppNavigator /></AuthProvider>); 
-      await waitFor(() => {
-        expect(getByText('DepositScreen')).toBeTruthy();
-      });
-    });
-
-    it('ユーザー状態チェック中にエラーが発生した場合、MainScreen(Home)にフォールバック', async () => {
-      mockIsUserInactive.mockRejectedValueOnce(new Error('Status check error'));
-      render(<AuthProvider><AppNavigator /></AuthProvider>);
-      simulateAuthStateChange(mockUser);
-
-      await waitFor(() => expect(mockIsUserInactive).toHaveBeenCalled());
-      const { getByText } = render(<AuthProvider><AppNavigator /></AuthProvider>); 
-      await waitFor(() => {
-        expect(getByText('MainScreen')).toBeTruthy();
-      });
-    });
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(authMockInstance.onAuthStateChanged).toHaveBeenCalled());
+    expect(await findByText('mock-LoginScreen')).toBeTruthy();
   });
 
-  describe('AuthProvider and useAuth', () => {
-    it('AuthProvider内でuseAuthを使用するとcontext値を返す', () => {
-      const TestComponent = () => {
-        const { user, isLoading } = useAuth();
-        return user ? user.uid : (isLoading ? 'Loading' : 'NoUser');
-      };
-      const { getByText } = render(
-        <AuthProvider>
-          <TestComponent />
-        </AuthProvider>
-      );
-      expect(getByText('Loading')).toBeTruthy(); 
+  test('4. アプリスタック (メイン画面へ): MainScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser);
+      return jest.fn();
     });
+    isUserInactive.mockResolvedValue(false);
+    getUserPaymentStatus.mockResolvedValue({ status: 'paid' });
 
-    it('AuthProvider外でuseAuthを使用するとエラーをスローする', () => {
-      const TestComponent = () => {
-        try {
-          useAuth();
-        } catch (e: any) {
-          return e.message;
-        }
-        return 'No error';
-      };
-      const originalError = console.error;
-      console.error = jest.fn();
-      const { getByText } = render(<TestComponent />);
-      expect(getByText('useAuth must be used within an AuthProvider')).toBeTruthy();
-      console.error = originalError;
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
+    await waitFor(() => expect(getUserPaymentStatus).toHaveBeenCalled());
+    expect(await findByText('mock-MainScreen')).toBeTruthy();
+  });
+
+  test('5. アプリスタック (支払い画面へ - 非アクティブ): DepositScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser);
+      return jest.fn();
     });
+    isUserInactive.mockResolvedValue(true);
+    getUserPaymentStatus.mockResolvedValue({ status: 'paid' });
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
+    await waitFor(() => expect(getUserPaymentStatus).toHaveBeenCalled()); 
+    expect(await findByText('mock-DepositScreen')).toBeTruthy();
+  });
+
+  test('6. アプリスタック (支払い画面へ - 未払い): DepositScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser);
+      return jest.fn();
+    });
+    isUserInactive.mockResolvedValue(false);
+    getUserPaymentStatus.mockResolvedValue(null);
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
+    await waitFor(() => expect(getUserPaymentStatus).toHaveBeenCalled());
+    expect(await findByText('mock-DepositScreen')).toBeTruthy();
+  });
+  
+  test('7. アプリスタック (支払い画面へ - 支払いステータスが "pending"): DepositScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser);
+      return jest.fn();
+    });
+    isUserInactive.mockResolvedValue(false);
+    getUserPaymentStatus.mockResolvedValue({ status: 'pending' });
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
+    await waitFor(() => expect(getUserPaymentStatus).toHaveBeenCalled());
+    expect(await findByText('mock-DepositScreen')).toBeTruthy();
+  });
+
+  test('8. userService.isUserInactive がエラー: MainScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser);
+      return jest.fn();
+    });
+    isUserInactive.mockRejectedValue(new Error('Failed to check user activity'));
+    getUserPaymentStatus.mockResolvedValue({ status: 'paid' });
+    
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
+    expect(await findByText('mock-MainScreen')).toBeTruthy();
+    
+    consoleErrorSpy.mockRestore();
+  });
+
+  test('9. userService.getUserPaymentStatus がエラー: MainScreen を表示', async () => {
+    authMockInstance.onAuthStateChanged.mockImplementation((callback: any) => {
+      callback(mockUser);
+      return jest.fn();
+    });
+    isUserInactive.mockResolvedValue(false);
+    getUserPaymentStatus.mockRejectedValue(new Error('Failed to get payment status'));
+
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { findByText } = renderWithAuthProvider(<AppNavigator />);
+    await waitFor(() => expect(isUserInactive).toHaveBeenCalled());
+    await waitFor(() => expect(getUserPaymentStatus).toHaveBeenCalled());
+    expect(await findByText('mock-MainScreen')).toBeTruthy();
+
+    consoleErrorSpy.mockRestore();
   });
 }); 

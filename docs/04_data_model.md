@@ -11,6 +11,9 @@ Firebase Firestoreをデータベースとして使用します。以下は主�
 *   **フィールド**:
     *   `currentLimit`: Number (ユーザーが初回に設定した1日の利用上限時間、分単位。原則変更不可)
     *   `challengeId`: String (現在アクティブなチャレンジのID、`challenges`コレクションへの参照)
+    *   `averageUsageTimeFetched`: Boolean (平均利用時間が取得・表示されたかのフラグ。初期値: `false`)
+    *   `timeLimitSet`: Boolean (目標時間が設定されたかのフラグ。初期値: `false`)
+    *   `paymentCompleted`: Boolean (支払いが完了したかのフラグ。初期値: `false`)
     *   `createdAt`: Timestamp (ユーザードキュメント作成日時、Firestoreサーバータイムスタンプを使用)
     *   `updatedAt`: Timestamp (ユーザードキュメント更新日時、Firestoreサーバータイムスタンプを使用)
     *   `lastLoginAt`: Timestamp (最終ログイン日時、任意)
