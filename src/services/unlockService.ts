@@ -103,14 +103,12 @@ export const processUnlock = async (
     await usageLogDocRef.update({ dailyLimitReached: false });
     console.log('Usage log updated for unlock.');
   } else {
-    // 本来 MainScreen で usageLog がなければ作成されるはずだが、念のため
-    console.warn('No usage log found for today to update dailyLimitReached for user:', userId);
-    // 必要であればここで作成して dailyLimitReached を false にする
-    // await firestore().collection('usageLogs').add({
-    //   userId,
-    //   date: todayStart,
-    //   usedMinutes: 0, // アンロック時点での使用時間は変わらない
-    //   dailyLimitReached: false,
-    // });
+    console.warn('No usage log found for today to update dailyLimitReached for user:', userId, '. Creating a new one.');
+    await firestore().collection('usageLogs').add({
+      userId,
+      date: todayStart, // getTodayUtcTimestamp() で取得した今日の日付
+      usedMinutes: 0, // アンロック時には使用時間を0にリセットするか、あるいは前の値を保持するかは要件による。ここでは0とする。
+      dailyLimitReached: false,
+    });
   }
 }; 

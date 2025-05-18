@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useContext } from 'react';
-import { View, Text, Button, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Button, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
-import { getAverageUsageMinutesLast30Days } from '../services/usageTrackingService';
+import { getAverageUsageMinutesLast30Days, AverageUsage, AppUsage } from '../services/usageTrackingService';
 import { markAverageUsageTimeFetched } from '../services/userService';
-import { useAuth } from '../navigation/AppNavigator'; // AuthContextからuserを取得するため
+import { useAuth } from '../navigation/AppNavigator';
 
 type AverageUsageScreenNavigationProp = StackNavigationProp<
   AppStackParamList,
@@ -17,7 +17,7 @@ type Props = {
 
 const AverageUsageScreen: React.FC<Props> = ({ navigation }) => {
   const { user } = useAuth();
-  const [averageUsageTime, setAverageUsageTime] = useState<string | null>(null);
+  const [averageUsage, setAverageUsage] = useState<AverageUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,16 +30,14 @@ const AverageUsageScreen: React.FC<Props> = ({ navigation }) => {
       }
       try {
         setIsLoading(true);
-        const minutes = await getAverageUsageMinutesLast30Days();
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-        setAverageUsageTime(`${hours > 0 ? hours + '時間' : ''}${mins}分`);
+        const usageData = await getAverageUsageMinutesLast30Days();
+        setAverageUsage(usageData);
         await markAverageUsageTimeFetched(user.uid);
         setError(null);
       } catch (e: any) {
         console.error('Failed to fetch average usage or mark as fetched:', e);
         setError('平均利用時間の取得または状態の更新に失敗しました。');
-        setAverageUsageTime('取得失敗');
+        setAverageUsage(null);
       } finally {
         setIsLoading(false);
       }
@@ -52,6 +50,15 @@ const AverageUsageScreen: React.FC<Props> = ({ navigation }) => {
     navigation.navigate('TimeSettingScreen');
   };
 
+  const formatTime = (minutes: number): string => {
+    if (typeof minutes !== 'number' || isNaN(minutes)) {
+      return 'データなし';
+    }
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours > 0 ? hours + '時間' : ''}${mins}分`;
+  };
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -62,24 +69,41 @@ const AverageUsageScreen: React.FC<Props> = ({ navigation }) => {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>過去30日間の平均利用時間</Text>
       {error && <Text style={styles.errorText}>{error}</Text>}
-      {averageUsageTime && !error && (
-        <Text style={styles.usageText}>{averageUsageTime}</Text>
+      
+      {averageUsage && !error && (
+        <View style={styles.usageContainer}>
+          <Text style={styles.totalUsageTitle}>合計平均:</Text>
+          <Text style={styles.usageText}>{formatTime(averageUsage.total)}</Text>
+          
+          {averageUsage.byApp && Object.keys(averageUsage.byApp).length > 0 && (
+            <View style={styles.byAppContainer}>
+              <Text style={styles.byAppTitle}>カテゴリ別平均:</Text>
+              {Object.entries(averageUsage.byApp).map(([appId, time]) => (
+                <View key={appId} style={styles.appUsageItem}>
+                  <Text style={styles.appName}>{appId === 'general' ? 'その他' : appId}:</Text>
+                  <Text style={styles.appTime}>{formatTime(time)}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       )}
+      
       <Text style={styles.description}>
         こちらが過去30日間のあなたの1日あたりの平均スマートフォン利用時間です。
         この数値を参考に、目標時間を設定しましょう。
       </Text>
-      <Button title="目標時間を設定する" onPress={handleNext} disabled={isLoading || !!error} />
-    </View>
+      <Button title="目標時間を設定する" onPress={handleNext} disabled={isLoading || !!error || !averageUsage} />
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -88,20 +112,69 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 10,
     textAlign: 'center',
   },
+  usageContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.22,
+    shadowRadius: 2.22,
+    elevation: 3,
+  },
+  totalUsageTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 5,
+  },
   usageText: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#4A90E2',
-    marginBottom: 20,
+    marginBottom: 15,
+  },
+  byAppContainer: {
+    marginTop: 15,
+    width: '100%',
+  },
+  byAppTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  appUsageItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    width: '100%',
+  },
+  appName: {
+    fontSize: 16,
+    color: '#333',
+  },
+  appTime: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#4A90E2',
   },
   description: {
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 30,
     color: '#333',
+    paddingHorizontal: 10,
   },
   loadingText: {
     marginTop: 10,

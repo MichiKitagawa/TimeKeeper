@@ -12,20 +12,43 @@ import {
 } from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import functions from '@react-native-firebase/functions';
+import { AppUsage } from './usageTrackingService';
 
 // Firestoreインスタンスを一度だけ取得
 const db = getFirestore();
+
+// アプリごとの目標時間を格納する型
+export interface AppUsageLimits {
+  [appId: string]: number;
+}
 
 export interface UserFlowStatus {
   averageUsageTimeFetched: boolean;
   timeLimitSet: boolean;
   paymentCompleted: boolean;
-  currentChallengeId?: string | null; // 既存のチャレンジIDも返すようにする
-  currentLimit?: number | null; // 既存の目標時間も返す
+  currentChallengeId?: string | null;
+  currentLimit?: number | null; // 全体の目標時間
 }
 
 export interface UserTimeSettings {
-  initialLimitMinutes: number;
+  totalInitialLimitMinutes: number; // 変更: 全体の目標時間
+  initialLimitByApp?: AppUsageLimits; // 追加: アプリごとの目標時間 (オプショナル)
+}
+
+// Firestoreの users ドキュメントの型 (部分的に定義)
+interface UserDocumentData {
+  currentLimit?: {
+    total: number;
+    byApp?: AppUsageLimits;
+  };
+  challengeId?: string;
+  timeLimitSet?: boolean;
+  averageUsageTimeFetched?: boolean; // getUserFlowStatusで参照するため追加
+  paymentCompleted?: boolean;      // getUserFlowStatusで参照するため追加
+  // ...その他のフィールド
+  createdAt?: FieldValue; // setUserInitialTimeLimitAndCreateChallenge で参照するため追加
+  uid?: string; // ensureUserDocument で参照するため追加
+  paymentStatus?: string; // ensureUserDocument で参照するため追加
 }
 
 /**
@@ -55,22 +78,27 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
       //   throw new Error('時間設定は初回のみ可能です。');
       // }
 
+      const userSnapData = userDocSnap.data() as UserDocumentData | undefined; //キャスト
+
       transaction.set(
         userDocRef,
         {
-          currentLimit: settings.initialLimitMinutes,
+          currentLimit: {
+            total: settings.totalInitialLimitMinutes,
+            byApp: settings.initialLimitByApp || {},
+          },
           challengeId: newChallengeRef.id,
           timeLimitSet: true, // 目標時間設定完了フラグ
           updatedAt: serverTimestamp(),
-          createdAt: userDocSnap.exists() ? userDocSnap.data()?.createdAt : serverTimestamp(),
+          createdAt: userSnapData?.createdAt ?? serverTimestamp(),
         },
         { merge: true }
       );
 
       transaction.set(newChallengeRef, {
         userId: userId,
-        initialLimitMinutes: settings.initialLimitMinutes,
-        currentDailyLimitMinutes: settings.initialLimitMinutes,
+        initialLimitMinutes: settings.totalInitialLimitMinutes,
+        currentDailyLimitMinutes: settings.totalInitialLimitMinutes,
         status: 'active' as const,
         startDate: serverTimestamp(),
       });
@@ -211,7 +239,7 @@ export const isUserInactive = async (userId: string, inactiveThresholdDays: numb
  * Firestoreから現在のユーザーデータを取得する
  * @returns {Promise<any | null>} ユーザーデータ、または存在しない場合はnull
  */
-export const getUserData = async (): Promise<any | null> => { // DocumentDataの具体的な型が不明なためanyを使用
+export const getUserData = async (): Promise<UserDocumentData | null> => {
   const currentUser = auth().currentUser;
   if (!currentUser) {
     console.warn('[getUserData] ユーザーが認証されていません。');
@@ -221,7 +249,7 @@ export const getUserData = async (): Promise<any | null> => { // DocumentDataの
     const userRef = doc(db, 'users', currentUser.uid);
     const userSnap = await getDoc(userRef);
     if (userSnap.exists()) {
-      return userSnap.data();
+      return userSnap.data() as UserDocumentData;
     } else {
       console.log(`[getUserData] ユーザー ${currentUser.uid} のドキュメントが見つかりません。`);
       return null;
@@ -283,21 +311,29 @@ export const ensureUserDocument = async (uid: string): Promise<void> => {
         uid: uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        paymentStatus: 'unpaid', // 初期支払いステータス
-        lastActiveDate: serverTimestamp(), // 初期アクティブ日時
-        // 新しいフロー管理フィールドの初期値
+        paymentStatus: 'pending',
+        lastActiveDate: serverTimestamp(),
         averageUsageTimeFetched: false,
         timeLimitSet: false,
         paymentCompleted: false,
-        currentLimit: null, // 目標時間
-        challengeId: null, // チャレンジID
+        currentLimit: {
+          total: null,
+          byApp: {}
+        },
+        challengeId: null,
       });
       console.log(`[ensureUserDocument] User document for ${uid} created successfully.`);
     } else {
-      console.log(`[ensureUserDocument] User document for ${uid} already exists.`);
-      // 既存ドキュメントにもしこれらのフィールドがなければ追加する処理も検討できるが、
-      // getUserFlowStatus が || false で対応しているので、必須ではない。
-      // 強制的に上書きはせず、存在しない場合のみの初期化に留める。
+      const data = userSnap.data() as UserDocumentData;
+      if (!data.currentLimit || typeof data.currentLimit === 'number' || !data.currentLimit.hasOwnProperty('total')) {
+        await updateDoc(userDocRef, {
+          currentLimit: {
+            total: typeof data.currentLimit === 'number' ? data.currentLimit : null,
+            byApp: {}
+          },
+          updatedAt: serverTimestamp()
+        });
+      }
     }
   } catch (error) {
     console.error(`[ensureUserDocument] Error ensuring user document for ${uid}:`, error);
@@ -398,13 +434,24 @@ export const markAverageUsageTimeFetched = async (userId: string): Promise<void>
   await updateUserFlowStatus(userId, { averageUsageTimeFetched: true });
 };
 
-export const markTimeLimitSet = async (userId: string, challengeId: string, initialLimitMinutes: number): Promise<void> => {
+export const markTimeLimitSet = async (userId: string, challengeId: string, settings: UserTimeSettings): Promise<void> => {
   // この関数はsetUserInitialTimeLimitAndCreateChallengeに統合されているので、直接は使わないかもしれないが、
   // 個別にフラグだけ更新したいケースがあれば利用
   await updateUserFlowStatus(userId, { 
     timeLimitSet: true, 
     currentChallengeId: challengeId,
-    currentLimit: initialLimitMinutes
+    currentLimit: settings.totalInitialLimitMinutes // UserFlowStatus.currentLimit は total のみ
+  });
+  // users ドキュメントの currentLimit も更新
+  const userDocRef = doc(db, 'users', userId);
+  await updateDoc(userDocRef, {
+    currentLimit: { // 構造を修正
+      total: settings.totalInitialLimitMinutes,
+      byApp: settings.initialLimitByApp || {},
+    },
+    challengeId: challengeId,
+    timeLimitSet: true, // updateUserFlowStatusと重複するが、明示的に設定
+    updatedAt: serverTimestamp(),
   });
 };
 
@@ -428,14 +475,31 @@ export const markPaymentCompleted = async (userId: string): Promise<void> => {
  */
 export const getUserFlowStatus = async (userId: string): Promise<UserFlowStatus> => {
   if (!userId) {
-    throw new Error('[getUserFlowStatus] ユーザーIDが指定されていません。');
+    console.warn('[getUserFlowStatus] userId is not provided');
+    // デフォルトの未完了ステータスを返すか、エラーを投げる
+    return {
+      averageUsageTimeFetched: false,
+      timeLimitSet: false,
+      paymentCompleted: false,
+      currentChallengeId: null,
+      currentLimit: null,
+    };
   }
   const userDocRef = doc(db, 'users', userId);
   try {
     const userSnap = await getDoc(userDocRef);
-    if (!userSnap.exists()) {
-      console.warn(`[getUserFlowStatus] ユーザー ${userId} のドキュメントが存在しません。初期状態を返します。`);
-      // ドキュメントが存在しない場合は、全フラグfalseで返す (ensureUserDocumentで作成されるはずだが念のため)
+    if (userSnap.exists()) {
+      const data = userSnap.data() as UserDocumentData;
+      return {
+        averageUsageTimeFetched: data.averageUsageTimeFetched || false,
+        timeLimitSet: data.timeLimitSet || false,
+        paymentCompleted: data.paymentCompleted || false,
+        currentChallengeId: data.challengeId || null,
+        currentLimit: data.currentLimit?.total ?? null,
+      };
+    } else {
+      // ユーザーが存在しない場合は、ensureUserDocument で初期化される想定
+      console.warn(`[getUserFlowStatus] User document not found for ${userId}, ensureUserDocument should create it.`);
       return {
         averageUsageTimeFetched: false,
         timeLimitSet: false,
@@ -444,16 +508,15 @@ export const getUserFlowStatus = async (userId: string): Promise<UserFlowStatus>
         currentLimit: null,
       };
     }
-    const data = userSnap.data();
-    return {
-      averageUsageTimeFetched: data?.averageUsageTimeFetched || false,
-      timeLimitSet: data?.timeLimitSet || (data?.currentLimit != null), // 既存のフィールドも考慮
-      paymentCompleted: data?.paymentCompleted || (data?.paymentStatus === 'paid'), // 既存のフィールドも考慮
-      currentChallengeId: data?.challengeId || null,
-      currentLimit: data?.currentLimit || null,
-    };
   } catch (error) {
-    console.error(`[getUserFlowStatus] ユーザー ${userId} のフロー状態取得エラー:`, error);
-    throw error;
+    console.error(`[getUserFlowStatus] Error fetching user flow status for ${userId}:`, error);
+    // エラー時もデフォルト値を返す
+    return {
+      averageUsageTimeFetched: false,
+      timeLimitSet: false,
+      paymentCompleted: false,
+      currentChallengeId: null,
+      currentLimit: null,
+    };
   }
 }; 

@@ -9,7 +9,9 @@ Firebase Firestoreをデータベースとして使用します。以下は主�
 
 *   ドキュメントID: Firebase AuthenticationのユーザーUID
 *   **フィールド**:
-    *   `currentLimit`: Number (ユーザーが初回に設定した1日の利用上限時間、分単位。原則変更不可)
+    *   `currentLimit`: Object (ユーザーが設定した1日の利用上限時間)
+        *   `total`: Number (合計上限時間、分単位)
+        *   `byApp`: Map (アプリ/カテゴリごとの上限時間、キー: アプリID/カテゴリ名, 値: 分単位、任意)
     *   `challengeId`: String (現在アクティブなチャレンジのID、`challenges`コレクションへの参照)
     *   `averageUsageTimeFetched`: Boolean (平均利用時間が取得・表示されたかのフラグ。初期値: `false`)
     *   `timeLimitSet`: Boolean (目標時間が設定されたかのフラグ。初期値: `false`)
@@ -43,7 +45,8 @@ Firebase Firestoreをデータベースとして使用します。以下は主�
 *   **フィールド**:
     *   `userId`: String (Firebase AuthenticationのユーザーUID)
     *   `date`: Timestamp (利用日、日付のみで時間は00:00:00 UTCなどを推奨)
-    *   `usedMinutes`: Number (その日に使用した分数)
+    *   `usedMinutes`: Number (その日に使用した合計分数)
+    *   `usedMinutesByApp`: Map (アプリ/カテゴリごとの利用分数、キー: アプリID/カテゴリ名, 値: 分単位、任意)
     *   `dailyLimitReached`: Boolean (その日の上限時間に達したか)
 
 ### `unlockLogs` コレクション

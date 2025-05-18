@@ -7,6 +7,21 @@ let foregroundTimer: NodeJS.Timeout | null = null;
 let accumulatedSecondsInForeground = 0; // フォアグラウンドでの累積秒数
 const SAVE_INTERVAL_SECONDS = 60; // 60秒（1分）ごとに保存
 
+// ★ 追加: アプリごとの利用時間を格納する型
+export interface AppUsage {
+  [appId: string]: number;
+}
+
+export interface DailyUsage {
+  total: number;
+  byApp?: AppUsage; // オプショナルに変更
+}
+
+export interface AverageUsage {
+  total: number;
+  byApp?: AppUsage; // オプショナルに変更
+}
+
 // 今日の日付の0時0分0秒(UTC)を取得するヘルパー
 export const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp | null => {
   try {
@@ -31,7 +46,7 @@ export const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp | null 
 // };
 
 // Firestoreに今日の利用時間を保存/更新
-export const saveUsageTimeToFirestore = async () => {
+export const saveUsageTimeToFirestore = async (currentAppCategory: string = 'general') => { // ★ currentAppCategory を引数に追加 (デフォルトは 'general')
   const currentUser = auth().currentUser;
   if (!currentUser) { // ユーザーがいない場合は何もしない
     // console.log('UsageTracking: No user, skipping save.');
@@ -67,7 +82,7 @@ export const saveUsageTimeToFirestore = async () => {
     return;
   }
 
-  console.log(`UsageTracking: Attempting to save ${minutesToSave} minute(s) for user ${userId}. Accumulated: ${accumulatedSecondsInForeground}s`);
+  console.log(`UsageTracking: Attempting to save ${minutesToSave} minute(s) for user ${userId} under category ${currentAppCategory}. Accumulated: ${accumulatedSecondsInForeground}s`);
 
   const usageLogsRef = firestore().collection('usageLogs');
 
@@ -83,17 +98,30 @@ export const saveUsageTimeToFirestore = async () => {
         userId: userId,
         date: todayTimestamp,
         usedMinutes: minutesToSave,
+        usedMinutesByApp: currentAppCategory ? { [currentAppCategory]: minutesToSave } : {}, // ★修正
         dailyLimitReached: false,
         createdAt: firestore.FieldValue.serverTimestamp(),
         updatedAt: firestore.FieldValue.serverTimestamp(),
       });
     } else {
       const doc = querySnapshot.docs[0];
-      const currentUsedMinutes = doc.data().usedMinutes || 0;
-      await doc.ref.update({
+      const currentData = doc.data(); // ★追加
+      const currentUsedMinutes = currentData.usedMinutes || 0;
+      const currentUsedMinutesByApp = (currentData.usedMinutesByApp || {}) as AppUsage; // ★追加
+
+      const updateData: { // ★型を明示
+        usedMinutes: number;
+        usedMinutesByApp?: AppUsage;
+        updatedAt: FirebaseFirestoreTypes.FieldValue;
+      } = {
         usedMinutes: currentUsedMinutes + minutesToSave,
         updatedAt: firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      if (currentAppCategory) { // ★ カテゴリ指定がある場合
+        currentUsedMinutesByApp[currentAppCategory] = (currentUsedMinutesByApp[currentAppCategory] || 0) + minutesToSave;
+        updateData.usedMinutesByApp = currentUsedMinutesByApp;
+      }
+      await doc.ref.update(updateData);
     }
     accumulatedSecondsInForeground = accumulatedSecondsInForeground % 60;
     console.log(`UsageTracking: Successfully saved ${minutesToSave} minute(s). Remaining seconds: ${accumulatedSecondsInForeground}`);
@@ -121,7 +149,7 @@ const handleAppStateChange = (nextAppState: AppStateStatus) => {
         accumulatedSecondsInForeground++;
         // 毎秒のログは削除
         if (accumulatedSecondsInForeground >= SAVE_INTERVAL_SECONDS) {
-          saveUsageTimeToFirestore();
+          saveUsageTimeToFirestore('general'); // ★ 仮で general を指定
         }
       }, 1000);
     } else {
@@ -135,14 +163,14 @@ const handleAppStateChange = (nextAppState: AppStateStatus) => {
       foregroundTimer = null;
       if (accumulatedSecondsInForeground > 0) {
           // console.log('UsageTracking: App going to background, attempting to save remaining time.');
-          saveUsageTimeToFirestore();
+          saveUsageTimeToFirestore('general'); // ★ 仮で general を指定
       }
     } else {
       // console.log('UsageTracking: No foreground timer to clear.');
        // タイマーがない場合でも、何らかの原因で蓄積時間がある可能性を考慮 (ほぼないはずだが念のため)
       if (accumulatedSecondsInForeground > 0) {
         // console.log('UsageTracking: No timer, but accumulated seconds exist. Attempting to save.');
-        saveUsageTimeToFirestore();
+        saveUsageTimeToFirestore('general'); // ★ 仮で general を指定
       }
     }
   }
@@ -159,7 +187,7 @@ export const initializeUsageTracking = () => {
       foregroundTimer = setInterval(() => {
         accumulatedSecondsInForeground++;
         if (accumulatedSecondsInForeground >= SAVE_INTERVAL_SECONDS) {
-          saveUsageTimeToFirestore();
+          saveUsageTimeToFirestore('general'); // ★ 仮で general を指定
         }
       }, 1000);
     }
@@ -177,20 +205,20 @@ export const initializeUsageTracking = () => {
     }
     if (accumulatedSecondsInForeground > 0) {
         // console.log('UsageTracking: Cleanup, attempting to save remaining time.');
-        saveUsageTimeToFirestore();
+        saveUsageTimeToFirestore('general'); // ★ 仮で general を指定
     }
     // console.log('UsageTracking: Cleaned up.');
   };
 };
 
 // 新しいユーティリティ関数
-export const getTodaysUsageMinutes = async (): Promise<number> => {
+export const getTodaysUsageMinutes = async (): Promise<DailyUsage> => { // ★ 戻り値の型を変更
   const currentUser = auth().currentUser;
-  if (!currentUser) return 0;
+  if (!currentUser) return { total: 0 };
 
   const userId = currentUser.uid;
   const todayTimestamp = getTodayUtcTimestamp();
-  if (!todayTimestamp) return 0;
+  if (!todayTimestamp) return { total: 0 };
 
   try {
     const querySnapshot = await firestore()
@@ -202,18 +230,21 @@ export const getTodaysUsageMinutes = async (): Promise<number> => {
 
     if (!querySnapshot.empty) {
       const doc = querySnapshot.docs[0];
-      return doc.data().usedMinutes || 0;
+      return { // ★ 修正
+        total: doc.data().usedMinutes || 0,
+        byApp: (doc.data().usedMinutesByApp || {}) as AppUsage,
+      };
     }
-    return 0;
+    return { total: 0 }; // ★ 修正
   } catch (error) {
     console.error('UsageTracking: Error fetching today\'s usage:', error);
-    return 0;
+    return { total: 0, byApp: {} }; // ★ 修正 (エラー時も型を合わせる)
   }
 };
 
-export const getAverageUsageMinutesLast30Days = async (): Promise<number> => {
+export const getAverageUsageMinutesLast30Days = async (): Promise<AverageUsage> => { // ★ 戻り値の型を変更
   const currentUser = auth().currentUser;
-  if (!currentUser) return 0;
+  if (!currentUser) return { total: 0, byApp: {} }; // ★ 修正
 
   const userId = currentUser.uid;
   const endDate = new Date();
@@ -234,27 +265,49 @@ export const getAverageUsageMinutesLast30Days = async (): Promise<number> => {
       .where('date', '<=', endTimestamp)
       .get();
 
-    if (querySnapshot.empty) return 0;
+    if (querySnapshot.empty) return { total: 0, byApp: {} }; // ★ 修正
 
-    let totalMinutes = 0;
-    let daysWithLogs = 0; // 実際にログがあった日数
+    let totalMinutesSum = 0;
+    const appMinutesSum: AppUsage = {}; // ★ 型をAppUsageに
     const uniqueDates = new Set<string>();
 
     querySnapshot.forEach(doc => {
       const data = doc.data();
-      totalMinutes += data.usedMinutes || 0;
       // Timestampを文字列化してユニークな日付をカウント
-      if (data.date && typeof data.date.toDate === 'function') {
-        uniqueDates.add(data.date.toDate().toISOString().split('T')[0]);
+      // if (data.date && typeof data.date.toDate === 'function') { // 修正: より安全なアクセス
+      //   uniqueDates.add(data.date.toDate().toISOString().split('T')[0]);
+      // }
+      const docDate = data.date?.toDate()?.toISOString().split('T')[0]; // ★ 修正: より安全なアクセス
+      if (docDate) {
+        uniqueDates.add(docDate);
+      }
+      
+      totalMinutesSum += data.usedMinutes || 0;
+      
+      const usedByApp = (data.usedMinutesByApp || {}) as AppUsage; // ★ 取得とキャスト
+      for (const appId in usedByApp) {
+        appMinutesSum[appId] = (appMinutesSum[appId] || 0) + usedByApp[appId];
       }
     });
     
-    daysWithLogs = uniqueDates.size;
+    // daysWithLogs = uniqueDates.size; // ログがあった日数で割る場合
+    // const daysToAverage = daysWithLogs > 0 ? daysWithLogs : 30; // ログがない場合は30日で割るか、0を返すかなど仕様による
+    const daysToAverage = 30; // ★ 常に30で割る（仕様による）
 
     // return daysWithLogs > 0 ? Math.round(totalMinutes / daysWithLogs) : 0; // ログがあった日数で割る
-    return daysWithLogs > 0 ? Math.round(totalMinutes / 30) : 0; // 常に30で割る（仕様による）
+    // return daysWithLogs > 0 ? Math.round(totalMinutes / 30) : 0; // 常に30で割る（仕様による）
+    const averageTotal = Math.round(totalMinutesSum / daysToAverage); // ★ totalMinutesSum を使用
+    const averageByApp: AppUsage = {};
+    for (const appId in appMinutesSum) {
+      averageByApp[appId] = Math.round(appMinutesSum[appId] / daysToAverage);
+    }
+
+    return { // ★ 修正
+      total: averageTotal,
+      byApp: averageByApp,
+    };
   } catch (error) {
     console.error('UsageTracking: Error fetching average usage:', error);
-    return 0;
+    return { total: 0, byApp: {} }; // ★ 修正 (エラー時も型を合わせる)
   }
 }; 
