@@ -19,7 +19,7 @@ const db = getFirestore();
 
 // アプリごとの目標時間を格納する型
 export interface AppUsageLimits {
-  [appId: string]: number;
+  [packageName: string]: number;
 }
 
 export interface UserFlowStatus {

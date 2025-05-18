@@ -80,10 +80,10 @@ const AverageUsageScreen: React.FC<Props> = ({ navigation }) => {
           
           {averageUsage.byApp && Object.keys(averageUsage.byApp).length > 0 && (
             <View style={styles.byAppContainer}>
-              <Text style={styles.byAppTitle}>カテゴリ別平均:</Text>
-              {Object.entries(averageUsage.byApp).map(([appId, time]) => (
-                <View key={appId} style={styles.appUsageItem}>
-                  <Text style={styles.appName}>{appId === 'general' ? 'その他' : appId}:</Text>
+              <Text style={styles.byAppTitle}>アプリ別平均:</Text>
+              {Object.entries(averageUsage.byApp).map(([packageName, time]) => (
+                <View key={packageName} style={styles.appUsageItem}>
+                  <Text style={styles.appName}>{packageName}:</Text>
                   <Text style={styles.appTime}>{formatTime(time)}</Text>
                 </View>
               ))}

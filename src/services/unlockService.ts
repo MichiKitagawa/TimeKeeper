@@ -100,8 +100,8 @@ export const processUnlock = async (
   const usageLogSnapshot = await usageLogQuery.get();
   if (!usageLogSnapshot.empty) {
     const usageLogDocRef = usageLogSnapshot.docs[0].ref;
-    await usageLogDocRef.update({ dailyLimitReached: false });
-    console.log('Usage log updated for unlock.');
+    await usageLogDocRef.update({ dailyLimitReached: false, usedMinutes: 0 });
+    console.log('Usage log updated for unlock. usedMinutes reset.');
   } else {
     console.warn('No usage log found for today to update dailyLimitReached for user:', userId, '. Creating a new one.');
     await firestore().collection('usageLogs').add({
