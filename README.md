@@ -11,7 +11,10 @@ TimekeeperAppは、ユーザーが設定した目標時間に基づいて日々�
 - 匿名認証による簡単な利用開始
 - 頭金設定機能
 - 利用上限時間設定機能
+    - Android: アプリ利用状況に基づき、アプリごとの目標時間を設定可能
 - 利用時間の自動減少とモニタリング
+    - Android: アプリのフォアグラウンド利用時間を自動で記録・集計
+    - 日次および過去30日間の平均利用時間を表示（合計およびアプリごと）
 - 設定時間を超えた場合のロック機能
 - ロック解除のための課金機能
 - チャレンジ完了時のリワード（Amazonギフト券発行など）
@@ -21,6 +24,8 @@ TimekeeperAppは、ユーザーが設定した目標時間に基づいて日々�
 - React Native
 - Firebase (Authentication, Firestore, Cloud Functions, etc.)
 - TypeScript
+- React Native Paper (UIコンポーネント)
+- `@brighthustle/react-native-usage-stats-manager` (Androidアプリ利用状況取得)
 
 ## 前提条件
 
