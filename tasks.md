@@ -144,7 +144,7 @@
 *   [ ] パフォーマンス監視と最適化 (Performance Monitoring連携)
 *   [x] ドキュメントの最新化 (本整備タスクで対応中)
 *   [x] MainScreenのVirtualizedListネスト警告の修正 (ScrollViewを削除しFlatListのHeader/FooterComponentsを使用)
-*   [ ] MainScreenのFlatListにおけるキー重複エラーの調査 (根本原因がデータ側にある可能性も考慮)
+*   [x] MainScreenのFlatListにおけるキー重複エラーの修正 (lockedAppsの重複排除処理を追加)
 
 ## フェーズ9: 時間設定画面へのアプリ手動追加機能 (`AddAppScreen.tsx` は `TimeSettingScreen.tsx` に統合)
 

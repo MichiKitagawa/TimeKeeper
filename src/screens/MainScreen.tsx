@@ -97,9 +97,10 @@ const MainScreen = () => {
       const appNameMap = userDoc.appNameMap || {};
       const dailyLimits = userDoc.currentDailyUsageLimit?.byApp || {};
       const usedByPackage = currentUsageLog?.usedMinutesByPackage || {};
-      const trackedApps = userDoc.lockedApps || [];
+      // Ensure trackedApps are unique to prevent duplicate keys
+      const uniqueTrackedApps = userDoc.lockedApps ? Array.from(new Set(userDoc.lockedApps)) : [];
 
-      const newDisplayUsages: DisplayAppUsageInfo[] = trackedApps.map(pkg => {
+      const newDisplayUsages: DisplayAppUsageInfo[] = uniqueTrackedApps.map(pkg => {
         const appName = appNameMap[pkg] || pkg;
         const allowed = dailyLimits[pkg] !== undefined ? dailyLimits[pkg] : Infinity;
         const used = usedByPackage[pkg] || 0;
