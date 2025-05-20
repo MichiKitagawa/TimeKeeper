@@ -177,17 +177,31 @@ const TimeSettingScreen = () => {
             [app.packageName]: { initial: initialError, target: targetError || editError },
           }));
         } else {
-          const initialVal = parseInt(app.currentUsageInput, 10);
-          const targetVal = parseInt(app.targetUsageInput, 10);
+          const currentInput = app.currentUsageInput.trim();
+          const targetInput = app.targetUsageInput.trim();
 
-          if (!isNaN(initialVal)) initialDailyUsageLimit[app.packageName] = initialVal;
-          else initialDailyUsageLimit[app.packageName] = 0;
+          // 現在の使用時間が実際に入力されている場合のみ initialDailyUsageLimit に設定
+          if (currentInput !== '') {
+            const initialVal = parseInt(currentInput, 10);
+            if (!isNaN(initialVal)) {
+              initialDailyUsageLimit[app.packageName] = initialVal;
+            }
+            // 空文字列の場合、または数値でない場合は initialDailyUsageLimit にキーを追加しない
+          }
           
-          if (!isNaN(targetVal)) targetLimit[app.packageName] = targetVal;
+          // 目標時間はバリデーションエラーがなければ設定
+          const targetVal = parseInt(targetInput, 10);
+          if (!isNaN(targetVal)) { 
+             targetLimit[app.packageName] = targetVal;
+          }
         }
 
-        lockedApps.push(app.packageName);
-        appNameMap[app.packageName] = app.appName;
+        // isSelectedToTrack が true であれば lockedApps と appNameMap には含める
+        // 目標時間が実際に設定されているかどうかは、後続のバリデーションでチェック
+        if (app.isSelectedToTrack) {
+            lockedApps.push(app.packageName);
+            appNameMap[app.packageName] = app.appName;
+        }
       }
     }
 
@@ -197,8 +211,19 @@ const TimeSettingScreen = () => {
       return;
     }
     
-    if (Object.keys(targetLimit).length === 0) {
-        Alert.alert("設定なし", "少なくとも1つのアプリの目標時間を設定してください。");
+    // 追跡対象として選択されたが、有効な目標時間が設定されていないアプリがないかチェック
+    const selectedAppsWithoutValidTarget = lockedApps.filter(
+      pkg => targetLimit[pkg] === undefined || isNaN(targetLimit[pkg])
+    );
+
+    if (selectedAppsWithoutValidTarget.length > 0) {
+        Alert.alert("設定エラー", "追跡対象として選択された全てのアプリに、有効な目標時間を入力してください。");
+        setIsLoading(false);
+        return;
+    }
+
+    if (Object.keys(targetLimit).length === 0 && lockedApps.length > 0) {
+        Alert.alert("設定なし", "少なくとも1つの追跡対象アプリに目標時間を設定してください。");
         setIsLoading(false);
         return;
     }
