@@ -92,7 +92,7 @@
     *   [x] ログイン → (時間未設定なら)時間設定 → (未払いなら)支払い → メイン のフローに。
     *   [x] `userService.getUserFlowStatus` を利用してユーザーの進捗状況に応じて遷移先を決定 (`averageUsageTimeFetched` は削除)。
 23. **既存画面のフロー対応と状態更新**
-    *   [x] `TimeSettingScreen.tsx`: 設定完了後に支払い画面 (`DepositScreen`) へ遷移。
+    *   [x] `TimeSettingScreen.tsx`: 設定完了後に、未支払いユーザーの場合は支払い画面 (`DepositScreen`) へ、支払い済みユーザーの場合はメイン画面 (`MainScreen`) へ遷移するように変更。
     *   [x] `DepositScreen.tsx`: 支払い完了後にメイン画面 (`MainScreen`) へ遷移。
     *   [x] `MainScreen.tsx`: 新しいデータモデル (`users.currentDailyUsageLimit`) に合わせて表示・ロジックを更新。
 24. **サービス層の改修 (`userService.ts`)**

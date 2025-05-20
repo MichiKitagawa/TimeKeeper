@@ -3,7 +3,7 @@ import { View, StyleSheet, Alert, ActivityIndicator, FlatList } from 'react-nati
 import { TextInput, Button, Text, HelperText, Provider as PaperProvider, Card, Title, Appbar, Subheading, Checkbox, Searchbar, List } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { setUserTimeSettings, UserTimeSettings, AppUsageLimits, getUserDocument } from '../services/userService';
+import { setUserTimeSettings, UserTimeSettings, AppUsageLimits, getUserDocument, getUserFlowStatus } from '../services/userService';
 import { getNativeInstalledLaunchableApps, InstalledAppInfo } from '../services/nativeUsageStats';
 import type { AppStackParamList } from '../navigation/AppNavigator';
 import auth from '@react-native-firebase/auth';
@@ -240,8 +240,15 @@ const TimeSettingScreen = () => {
 
     try {
       await setUserTimeSettings(currentUser.uid, settingsToSave);
-      Alert.alert("成功", "時間設定を保存しました。次に支払い画面に進みます。");
-      navigation.replace('Deposit'); 
+      const userStatus = await getUserFlowStatus(currentUser.uid);
+
+      if (userStatus.paymentCompleted) {
+        Alert.alert("成功", "時間設定を更新しました。");
+        navigation.replace('Home');
+      } else {
+        Alert.alert("成功", "時間設定を保存しました。次に支払い画面に進みます。");
+        navigation.replace('Deposit');
+      }
     } catch (e: any) {
       console.error("Failed to save time settings:", e);
       setError(`設定の保存に失敗しました: ${e.message || '不明なエラー'}`);
