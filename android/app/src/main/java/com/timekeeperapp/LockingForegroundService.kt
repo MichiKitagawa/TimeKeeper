@@ -126,16 +126,20 @@ class LockingForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
             val time = System.currentTimeMillis()
             val events = usageStatsManager.queryEvents(time - OVERLAY_UPDATE_INTERVAL_MS * 2, time) // 直近のイベントを取得
-            val event = UsageEvents.Event()
-            var lastEvent: UsageEvents.Event? = null
+            var latestForegroundEventTimestamp: Long = -1L // 修正後: 最新イベントのタイムスタンプ
+            var foregroundAppPackageName: String? = null    // 修正後: 最新イベントのパッケージ名
+            val currentEvent = UsageEvents.Event()          // 修正後: ループ内で使用するイベントオブジェクト
 
             while (events.hasNextEvent()) {
-                events.getNextEvent(event)
-                if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                    lastEvent = UsageEvents.Event(event) // コピーを作成
+                events.getNextEvent(currentEvent) // currentEventの内容がここで更新される
+                if (currentEvent.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                    if (currentEvent.timeStamp > latestForegroundEventTimestamp) {
+                        latestForegroundEventTimestamp = currentEvent.timeStamp
+                        foregroundAppPackageName = currentEvent.packageName
+                    }
                 }
             }
-            currentForegroundApp = lastEvent?.packageName
+            currentForegroundApp = foregroundAppPackageName // 修正後
         } else {
             // 古いAndroidバージョン向けの代替手段 (より信頼性が低い)
             // ActivityManager.getRunningTasks(1) などを使うが、近年は制限が多い

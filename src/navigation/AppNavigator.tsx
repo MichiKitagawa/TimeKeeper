@@ -10,7 +10,6 @@ import MainScreen from '../screens/MainScreen';
 import DepositScreen from '../screens/DepositScreen';
 import TimeSettingScreen from '../screens/TimeSettingScreen';
 import LockScreen from '../screens/LockScreen';
-import AddAppScreen from '../screens/AddAppScreen';
 import UnlockProcessingScreen from '../screens/UnlockProcessingScreen';
 
 // ナビゲーションパラメータリスト
@@ -19,7 +18,6 @@ export type AppStackParamList = {
   Deposit: undefined;
   TimeSettingScreen: undefined;
   LockScreen: undefined;
-  AddAppScreen: undefined;
   UnlockProcessingScreen: { packageName: string, limitMinutes: number };
   // 他のApp内スクリーンもここに追加
 };
@@ -77,7 +75,6 @@ const AppStackScreens = ({ initialRoute = 'Home' }: { initialRoute?: keyof AppSt
     <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '利用料支払い' }} />
     <Stack.Screen name="TimeSettingScreen" component={TimeSettingScreen} options={{ title: '時間設定' }}/>
     <Stack.Screen name="LockScreen" component={LockScreen} options={{ title: 'ロック中', headerShown: false }} />
-    <Stack.Screen name="AddAppScreen" component={AddAppScreen} options={{ title: 'アプリ手動追加' }} />
     <Stack.Screen name="UnlockProcessingScreen" component={UnlockProcessingScreen} options={{ title: 'アンロック処理' }} />
     {/* Add other app screens here */}
   </Stack.Navigator>
@@ -105,12 +102,9 @@ const AppNavigator = () => {
           console.log('[AppNavigator] Calling getUserFlowStatus...');
           const userStatus = await getUserFlowStatus(user.uid);
           console.log('[AppNavigator] getUserFlowStatus completed. Result:', userStatus);
-          const { averageUsageTimeFetched, timeLimitSet, paymentCompleted } = userStatus;
+          const { timeLimitSet, paymentCompleted } = userStatus;
 
-          if (!averageUsageTimeFetched) {
-            console.log('[AppNavigator] Navigating to TimeSettingScreen. AverageUsageScreen is disabled.');
-            setInitialRouteName('TimeSettingScreen');
-          } else if (!timeLimitSet) {
+          if (!timeLimitSet) {
             console.log('[AppNavigator] Navigating to TimeSettingScreen.');
             setInitialRouteName('TimeSettingScreen');
           } else if (!paymentCompleted) {

@@ -1,41 +1,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert, ScrollView, ActivityIndicator } from 'react-native';
-import { TextInput, Button, Text, HelperText, Provider as PaperProvider, Card, Title, Appbar, Subheading, Checkbox } from 'react-native-paper';
+import { View, StyleSheet, Alert, ScrollView, ActivityIndicator, FlatList } from 'react-native';
+import { TextInput, Button, Text, HelperText, Provider as PaperProvider, Card, Title, Appbar, Subheading, Checkbox, Searchbar, List } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { setUserInitialTimeLimitAndCreateChallenge, UserTimeSettings, AppUsageLimits, getUserDocument, updateUserDocument } from '../services/userService';
-import { getAppUsageStats, AppUsageStatsData } from '../services/usageTrackingService';
+import { setUserTimeSettings, UserTimeSettings, AppUsageLimits, getUserDocument } from '../services/userService';
+import { getNativeInstalledLaunchableApps, InstalledAppInfo } from '../services/nativeUsageStats';
 import type { AppStackParamList } from '../navigation/AppNavigator';
-import * as nativeLockingService from '../services/nativeLockingService';
-import type { AppLockInfoNative } from '../services/nativeLockingService';
 import auth from '@react-native-firebase/auth';
 
-// nativeLockingServiceから取得するアプリ情報の型
-interface NativeInstalledAppInfo {
-  appName: string;
-  packageName: string;
+interface DisplayAppInfoForSetting extends InstalledAppInfo {
+  id: string;
+  currentUsageInput: string;
+  targetUsageInput: string;
+  isSelectedToTrack: boolean;
 }
 
 const TimeSettingScreen = () => {
   const navigation = useNavigation<StackNavigationProp<AppStackParamList, 'TimeSettingScreen'>>();
   const currentUser = auth().currentUser;
 
-  const [initialDailyUsageLimits, setInitialDailyUsageLimits] = useState<AppUsageLimits>({});
-  const [targetTimeLimits, setTargetTimeLimits] = useState<AppUsageLimits>({});
-  const [selectedLockedApps, setSelectedLockedApps] = useState<string[]>([]);
-  
-  const [error, setError] = useState<string | null>(null);
-  const [appErrors, setAppErrors] = useState<{[key: string]: { initial?: string | null, target?: string | null }}>({});
+  const [allInstalledApps, setAllInstalledApps] = useState<DisplayAppInfoForSetting[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingApps, setIsFetchingApps] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [appErrors, setAppErrors] = useState<{[key: string]: { initial?: string | null, target?: string | null }}>({});
 
-  interface DisplayAppInfo extends AppUsageStatsData {
-    manuallyAdded?: boolean;
-    appNameFallback?: string;
-  }
-  const [displayApps, setDisplayApps] = useState<DisplayAppInfo[]>([]);
-
-  const fetchAppsAndLimits = useCallback(async () => {
+  const fetchAndInitializeApps = useCallback(async () => {
     if (!currentUser) {
       Alert.alert("エラー", "ユーザーがログインしていません。");
       setIsFetchingApps(false);
@@ -44,67 +35,31 @@ const TimeSettingScreen = () => {
     setIsFetchingApps(true);
     setError(null);
     setAppErrors({});
+
     try {
-      const today = new Date();
-      const sevenDaysAgo = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7);
-      
-      const userDocPromise = getUserDocument(currentUser.uid);
+      const installedApps = await getNativeInstalledLaunchableApps();
+      const userDoc = await getUserDocument(currentUser.uid);
+      const existingInitialLimits = userDoc?.initialDailyUsageLimit?.byApp || {};
+      const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
+      const existingLockedApps = userDoc?.lockedApps || [];
 
-      const [userDoc] = await Promise.all([
-        userDocPromise,
-      ]);
+      const initializedApps: DisplayAppInfoForSetting[] = installedApps.map(app => ({
+        ...app,
+        id: app.packageName,
+        currentUsageInput: existingInitialLimits[app.packageName]?.toString() || '',
+        targetUsageInput: existingTargetLimits[app.packageName]?.toString() || '',
+        isSelectedToTrack: existingLockedApps.includes(app.packageName) || 
+                           (!!existingInitialLimits[app.packageName] && !!existingTargetLimits[app.packageName]),
+      })).sort((a, b) => a.appName.localeCompare(b.appName));
 
-      const usedAppsResult = await getAppUsageStats(sevenDaysAgo, today);
-      const manuallyAddedAppsFromDoc: NativeInstalledAppInfo[] = userDoc?.manuallyAddedApps || [];
-
-      const mergedApps: DisplayAppInfo[] = [];
-      const packageNames = new Set<string>();
-
-      usedAppsResult.forEach(app => {
-        if (!packageNames.has(app.packageName)) {
-          mergedApps.push({ ...app, manuallyAdded: false });
-          packageNames.add(app.packageName);
-        }
-      });
-
-      const manuallyAddedAppsForDisplay: DisplayAppInfo[] = manuallyAddedAppsFromDoc.map(manualApp => ({
-        packageName: manualApp.packageName,
-        appName: manualApp.appName,
-        appNameFallback: manualApp.appName,
-        totalTimeInForeground: 0,
-        lastTimeUsed: 0,
-        manuallyAdded: true,
-      }));
-      
-      manuallyAddedAppsForDisplay.forEach(manualApp => {
-        if (!packageNames.has(manualApp.packageName)) {
-          mergedApps.push(manualApp);
-          packageNames.add(manualApp.packageName);
-        } else {
-          const existingApp = mergedApps.find(app => app.packageName === manualApp.packageName);
-          if (existingApp) {
-            existingApp.manuallyAdded = true;
-            if (!existingApp.appName) existingApp.appName = manualApp.appName;
-            existingApp.appNameFallback = manualApp.appName;
-          }
-        }
-      });
-      
-      mergedApps.sort((a, b) => (a.appName || a.appNameFallback || '').localeCompare(b.appName || b.appNameFallback || ''));
-
-      setDisplayApps(mergedApps);
-
-      if (userDoc && 'lockedApps' in userDoc && Array.isArray(userDoc.lockedApps)) {
-        setSelectedLockedApps(userDoc.lockedApps);
-      }
-
-      if (mergedApps.length === 0) {
-        setError("利用記録のあるアプリ、または手動追加されたアプリがありません。右上の「＋」ボタンからアプリを追加してください。");
+      setAllInstalledApps(initializedApps);
+      if (initializedApps.length === 0) {
+        setError("インストールされているアプリが見つかりません。");
       }
     } catch (e) {
-      console.error("Failed to fetch apps and limits:", e);
-      setError("アプリ一覧または既存設定の取得に失敗しました。");
-      setDisplayApps([]);
+      console.error("Failed to fetch or initialize apps:", e);
+      setError("アプリ一覧の取得または初期設定の読み込みに失敗しました。");
+      setAllInstalledApps([]);
     } finally {
       setIsFetchingApps(false);
     }
@@ -112,410 +67,266 @@ const TimeSettingScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      fetchAppsAndLimits();
-    }, [fetchAppsAndLimits])
+      fetchAndInitializeApps();
+    }, [fetchAndInitializeApps])
   );
 
-  const validateIndividualTimeLimit = (timeLimit: string, allowZero: boolean = true): string | null => {
-    if (!timeLimit && !allowZero) return '時間を入力してください。';
-    if (!timeLimit && allowZero) return null;
+  const handleToggleSelectApp = (packageName: string) => {
+    setAllInstalledApps(prevApps => 
+      prevApps.map(app => 
+        app.packageName === packageName 
+          ? { ...app, isSelectedToTrack: !app.isSelectedToTrack } 
+          : app
+      )
+    );
+  };
+
+  const handleInputChange = (packageName: string, field: 'current' | 'target', text: string) => {
+    setAllInstalledApps(prevApps => 
+      prevApps.map(app => {
+        if (app.packageName === packageName) {
+          const updatedApp = { ...app };
+          if (field === 'current') updatedApp.currentUsageInput = text;
+          if (field === 'target') updatedApp.targetUsageInput = text;
+          return updatedApp;
+        }
+        return app;
+      })
+    );
+    const validationError = validateIndividualTimeLimit(text, true, field === 'target' && allInstalledApps.find(a=>a.packageName === packageName)?.isSelectedToTrack);
+    setAppErrors(prev => ({
+      ...prev,
+      [packageName]: { ...prev[packageName], [field === 'current' ? 'initial' : 'target']: validationError },
+    }));
+  };
+
+  const validateIndividualTimeLimit = (timeLimit: string, allowZero: boolean = true, isTargetRequired: boolean = false): string | null => {
+    if (!timeLimit && isTargetRequired) return '時間を入力してください。';
+    if (!timeLimit && !isTargetRequired) return null;
+    
     const numericTimeLimit = parseInt(timeLimit, 10);
     if (isNaN(numericTimeLimit)) return '数値を入力してください。';
-    if (numericTimeLimit < (allowZero ? 0 : 1) || numericTimeLimit > 1440) {
-      return `時間は${allowZero ? 0 : 1}分から1440分の間で設定してください。`;
+    if (numericTimeLimit < (allowZero && !isTargetRequired ? 0 : 1) || numericTimeLimit > 1440) {
+      return `時間は${(allowZero && !isTargetRequired ? 0 : 1)}分から1440分の間で設定してください。`;
     }
     if (!Number.isInteger(numericTimeLimit)) return '整数で入力してください。';
     return null;
   };
-
-  const handleInitialLimitChange = (packageName: string, text: string) => {
-    const newLimits = { ...initialDailyUsageLimits };
-    if (text === '' || text === undefined) {
-      delete newLimits[packageName];
-    } else {
-      const parsedValue = parseInt(text, 10);
-      if (!isNaN(parsedValue)) {
-        newLimits[packageName] = parsedValue;
-      } else {
-        delete newLimits[packageName];
-      }
-    }
-    setInitialDailyUsageLimits(newLimits);
-
-    const validationError = validateIndividualTimeLimit(text, true);
-    setAppErrors(prev => ({
-      ...prev,
-      [packageName]: { ...prev[packageName], initial: validationError },
-    }));
-  };
   
-  const handleTargetLimitChange = (packageName: string, text: string) => {
-    const newLimits = { ...targetTimeLimits };
-    if (text === '' || text === undefined) {
-      delete newLimits[packageName];
-    } else {
-      const parsedValue = parseInt(text, 10);
-      if (!isNaN(parsedValue)) {
-        newLimits[packageName] = parsedValue;
-      } else {
-        delete newLimits[packageName];
-      }
+  const validateTargetTimeEdit = (newTarget: number, oldTarget?: number): string | null => {
+    if (oldTarget !== undefined && newTarget > oldTarget) {
+      return '目標時間は以前の値より短縮する必要があります。';
     }
-    setTargetTimeLimits(newLimits);
-
-    const validationError = validateIndividualTimeLimit(text, true);
-    setAppErrors(prev => ({
-      ...prev,
-      [packageName]: { ...prev[packageName], target: validationError },
-    }));
-  };
-
-  const toggleLockedApp = (packageName: string) => {
-    setSelectedLockedApps(prevSelected =>
-      prevSelected.includes(packageName)
-        ? prevSelected.filter(p => p !== packageName)
-        : [...prevSelected, packageName]
-    );
+    return null;
   };
 
   const handleConfirm = async () => {
-    let hasError = false;
-    const finalInitialDailyUsageLimits: AppUsageLimits = {};
-    const finalTargetTimeLimits: AppUsageLimits = {};
-
-    for (const app of displayApps) {
-      const pkgName = app.packageName;
-      const initialText = initialDailyUsageLimits[pkgName]?.toString() ?? '';
-      const targetText = targetTimeLimits[pkgName]?.toString() ?? '';
-
-      const initialError = validateIndividualTimeLimit(initialText, true);
-      const isTargetRequired = selectedLockedApps.includes(pkgName);
-      const targetError = validateIndividualTimeLimit(targetText, !isTargetRequired);
-
-      if (initialError || targetError) {
-        hasError = true;
-        setAppErrors(prev => ({
-          ...prev,
-          [pkgName]: { initial: initialError, target: targetError },
-        }));
-      }
-      
-      if (!initialError && initialDailyUsageLimits[pkgName] !== undefined) {
-        finalInitialDailyUsageLimits[pkgName] = initialDailyUsageLimits[pkgName];
-      }
-      if (!targetError) {
-        if (targetTimeLimits[pkgName] !== undefined) {
-            finalTargetTimeLimits[pkgName] = targetTimeLimits[pkgName];
-        } else if (isTargetRequired && (targetText === '' || targetText === undefined)) {
-            finalTargetTimeLimits[pkgName] = 0;
-        }
-      }
-    }
-
-    selectedLockedApps.forEach(pkgName => {
-        if (appErrors[pkgName]?.target) {
-            hasError = true;
-        }
-        if (!finalTargetTimeLimits.hasOwnProperty(pkgName)) {
-             Alert.alert('設定エラー', `${displayApps.find(a=>a.packageName === pkgName)?.appName || pkgName} はロック対象ですが目標時間が設定されていません。0分以上の目標時間を設定してください。`);
-             hasError = true;
-        }
-    });
-
-    if (hasError) {
-      Alert.alert('入力エラー', '入力内容に誤りがあります。各項目のエラーメッセージを確認してください。');
+    if (!currentUser) {
+      Alert.alert("エラー", "ユーザー情報が見つかりません。");
       return;
     }
-
-    if (Object.keys(finalInitialDailyUsageLimits).length === 0 && displayApps.length > 0) {
-      Alert.alert('設定不足', '少なくとも1つのアプリで「現在の1日の使用時間」を設定してください。');
-      return;
-    }
-    const initialAppsWithTargets = Object.keys(finalInitialDailyUsageLimits).filter(pkg => finalTargetTimeLimits[pkg] !== undefined);
-    if (Object.keys(finalInitialDailyUsageLimits).length > 0 && initialAppsWithTargets.length === 0) {
-        Alert.alert('目標未設定', '「現在の1日の使用時間」を設定したアプリには、「目標の1日の使用時間」も設定してください（0分も可）。');
-        return;
-    }
-
-    for (const pkgName in finalInitialDailyUsageLimits) {
-      if (finalTargetTimeLimits.hasOwnProperty(pkgName) && 
-          finalInitialDailyUsageLimits[pkgName] < finalTargetTimeLimits[pkgName]) {
-        setAppErrors(prev => ({
-            ...prev,
-            [pkgName]: { ...prev[pkgName], target: '目標時間は現在の使用時間以下に設定してください。' },
-          }));
-        hasError = true;
-      }
-    }
-    if (hasError) {
-        Alert.alert('入力エラー', '目標時間は現在の使用時間以下に設定してください。');
-        return;
-    }
-
-    const calculatedInitialTotal = Object.values(finalInitialDailyUsageLimits).reduce((sum, time) => sum + (isNaN(time) ? 0 : time), 0);
-    const calculatedTargetTotal = Object.values(finalTargetTimeLimits).reduce((sum, time) => sum + (isNaN(time) ? 0 : time), 0);
-
-    if (Object.keys(finalInitialDailyUsageLimits).length > 0 && calculatedInitialTotal === 0) {
-      Alert.alert('合計時間エラー', '「現在の1日の使用時間」の合計が0分です。少なくとも1つのアプリで0より大きい時間を設定してください。');
-      return;
-    }
-
     setIsLoading(true);
-    try {
-      const settings: UserTimeSettings = {
-        initialDailyUsageLimit: {
-          total: calculatedInitialTotal,
-          byApp: finalInitialDailyUsageLimits,
-        },
-        targetLimit: {
-          total: calculatedTargetTotal,
-          byApp: finalTargetTimeLimits,
-        },
-      };
+    setError(null);
+    setAppErrors({});
+    let hasError = false;
 
-      if (!currentUser) {
-        Alert.alert("エラー", "ユーザーがログインしていません。");
+    const initialDailyUsageLimit: AppUsageLimits = {};
+    const targetLimit: AppUsageLimits = {};
+    const lockedApps: string[] = [];
+    const appNameMap: { [packageName: string]: string } = {};
+    const userDoc = await getUserDocument(currentUser.uid);
+    const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
+
+    for (const app of allInstalledApps) {
+      if (app.isSelectedToTrack) {
+        const initialError = validateIndividualTimeLimit(app.currentUsageInput, true, false);
+        const targetError = validateIndividualTimeLimit(app.targetUsageInput, false, true);
+        let editError: string | null = null;
+
+        const currentTargetNum = parseInt(app.targetUsageInput, 10);
+        if (!targetError && !isNaN(currentTargetNum)) {
+            const oldTargetNum = existingTargetLimits[app.packageName];
+            editError = validateTargetTimeEdit(currentTargetNum, oldTargetNum);
+        }
+
+        if (initialError || targetError || editError) {
+          hasError = true;
+          setAppErrors(prev => ({
+            ...prev,
+            [app.packageName]: { initial: initialError, target: targetError || editError },
+          }));
+        } else {
+          const initialVal = parseInt(app.currentUsageInput, 10);
+          const targetVal = parseInt(app.targetUsageInput, 10);
+
+          if (!isNaN(initialVal)) initialDailyUsageLimit[app.packageName] = initialVal;
+          else initialDailyUsageLimit[app.packageName] = 0;
+          
+          if (!isNaN(targetVal)) targetLimit[app.packageName] = targetVal;
+        }
+
+        lockedApps.push(app.packageName);
+        appNameMap[app.packageName] = app.appName;
+      }
+    }
+
+    if (hasError) {
+      setIsLoading(false);
+      Alert.alert("入力エラー", "入力内容を確認してください。");
+      return;
+    }
+    
+    if (Object.keys(targetLimit).length === 0) {
+        Alert.alert("設定なし", "少なくとも1つのアプリの目標時間を設定してください。");
         setIsLoading(false);
         return;
-      }
-      
-      await setUserInitialTimeLimitAndCreateChallenge(currentUser.uid, settings);
+    }
 
-      await updateUserDocument(currentUser.uid, { lockedApps: selectedLockedApps });
+    const totalInitial = Object.values(initialDailyUsageLimit).reduce((sum, val) => sum + val, 0);
+    const totalTarget = Object.values(targetLimit).reduce((sum, val) => sum + val, 0);
 
-      const lockedAppsInfoForNative: AppLockInfoNative[] = selectedLockedApps.map(packageName => ({
-        packageName,
-        limitMinutes: finalTargetTimeLimits[packageName] !== undefined ? finalTargetTimeLimits[packageName] : 0,
-      }));
+    const settingsToSave: UserTimeSettings = {
+      initialDailyUsageLimit: { total: totalInitial, byApp: initialDailyUsageLimit },
+      targetLimit: { total: totalTarget, byApp: targetLimit },
+      lockedApps: lockedApps,
+      appNameMap: appNameMap,
+    };
 
-      const lockAppsSetSuccess = await nativeLockingService.setLockedApps(lockedAppsInfoForNative);
-      if (!lockAppsSetSuccess) {
-        Alert.alert("ネイティブエラー", "ロック対象アプリの設定に失敗しました。");
-      }
-      const serviceStartSuccess = await nativeLockingService.startLockingService();
-      if (!serviceStartSuccess) {
-        Alert.alert("ネイティブエラー", "監視サービスの開始に失敗しました。");
-      }
-
-      Alert.alert("成功", "時間制限とロック設定が保存されました。");
-      navigation.navigate('Deposit');
+    try {
+      await setUserTimeSettings(currentUser.uid, settingsToSave);
+      Alert.alert("成功", "時間設定を保存しました。次に支払い画面に進みます。");
+      navigation.replace('Deposit'); 
     } catch (e: any) {
-      console.error('時間設定保存エラー:', e);
-      Alert.alert('エラー', e.message || '時間設定の保存に失敗しました。');
+      console.error("Failed to save time settings:", e);
+      setError(`設定の保存に失敗しました: ${e.message || '不明なエラー'}`);
     } finally {
       setIsLoading(false);
     }
   };
-  
-  const isAnyAppError = displayApps.some(app => 
-    appErrors[app.packageName]?.initial || appErrors[app.packageName]?.target
+
+  const filteredApps = allInstalledApps.filter(app => 
+    app.appName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const renderAppItem = ({ item }: { item: DisplayAppInfoForSetting }) => (
+    <Card style={styles.card}>
+      <List.Item 
+        title={item.appName}
+        description={item.packageName}
+        left={() => <Checkbox status={item.isSelectedToTrack ? 'checked' : 'unchecked'} onPress={() => handleToggleSelectApp(item.packageName)} />}
+      />
+      {item.isSelectedToTrack && (
+        <Card.Content>
+          <TextInput
+            label="現在の1日の使用時間 (分)"
+            value={item.currentUsageInput}
+            onChangeText={(text) => handleInputChange(item.packageName, 'current', text)}
+            keyboardType="numeric"
+            style={styles.input}
+            error={!!appErrors[item.packageName]?.initial}
+          />
+          <HelperText type="error" visible={!!appErrors[item.packageName]?.initial}>
+            {appErrors[item.packageName]?.initial}
+          </HelperText>
+          <TextInput
+            label="目標の1日の使用時間 (分)"
+            value={item.targetUsageInput}
+            onChangeText={(text) => handleInputChange(item.packageName, 'target', text)}
+            keyboardType="numeric"
+            style={styles.input}
+            error={!!appErrors[item.packageName]?.target}
+          />
+          <HelperText type="error" visible={!!appErrors[item.packageName]?.target}>
+            {appErrors[item.packageName]?.target}
+          </HelperText>
+        </Card.Content>
+      )}
+    </Card>
   );
 
   if (isFetchingApps) {
     return (
-      <PaperProvider>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" />
-          <Text>利用可能なアプリを読み込み中...</Text>
-        </View>
-      </PaperProvider>
+      <View style={styles.centeredContainer}>
+        <ActivityIndicator animating={true} size="large" />
+        <Text style={styles.loadingText}>アプリ情報を読み込んでいます...</Text>
+      </View>
     );
   }
 
   return (
-    <PaperProvider>
+    <View style={styles.container}>
       <Appbar.Header>
-        <Appbar.BackAction onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.replace('Home')} />
-        <Appbar.Content title="利用時間 設定" />
-        <Appbar.Action icon="plus-box-multiple" onPress={() => navigation.navigate('AddAppScreen')} />
+        <Appbar.Content title="時間設定" />
       </Appbar.Header>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.container}>
-          <Title style={styles.title}>アプリごとの利用時間設定</Title>
-          <Text style={styles.description}>
-            各アプリの「現在の1日の平均的な使用時間」と、「最終的に目指したい目標の1日の使用時間」を分単位で入力してください。
-            目標時間に向けて、毎日少しずつ利用可能時間が減っていきます。
-            未入力の場合は、そのアプリは時間制限の対象外となります。0分と入力すると、その日の利用を不可にできます。
-          </Text>
-          
-          {error && <HelperText type="error" visible={!!error} style={styles.generalErrorText}>{error}</HelperText>}
-
-          {displayApps.length > 0 ? (
-            <Card style={styles.card}>
-              <Card.Content>
-                {displayApps.map((app) => (
-                  <View key={app.packageName} style={styles.appRowContainer}>
-                    <Subheading style={styles.appSubheading}>{app.appName || app.appNameFallback || app.packageName}{app.totalTimeInForeground === 0 && app.manuallyAdded ? " (利用履歴なし)" : ""}</Subheading>
-                    <View style={styles.inputRow}>
-                        <View style={styles.inputContainer}>
-                            <TextInput
-                                label="現在の使用時間 (分)"
-                                value={initialDailyUsageLimits[app.packageName]?.toString() ?? ''}
-                                onChangeText={(text) => handleInitialLimitChange(app.packageName, text)}
-                                keyboardType="numeric"
-                                style={styles.appInput}
-                                dense
-                                error={!!appErrors[app.packageName]?.initial}
-                            />
-                            <HelperText type="error" visible={!!appErrors[app.packageName]?.initial} style={styles.appErrorText}>
-                                {appErrors[app.packageName]?.initial}
-                            </HelperText>
-                        </View>
-                        <View style={styles.inputContainer}>
-                            <TextInput
-                                label="目標の使用時間 (分)"
-                                value={targetTimeLimits[app.packageName]?.toString() ?? ''}
-                                onChangeText={(text) => handleTargetLimitChange(app.packageName, text)}
-                                keyboardType="numeric"
-                                style={styles.appInput}
-                                dense
-                                error={!!appErrors[app.packageName]?.target}
-                            />
-                            <HelperText type="error" visible={!!appErrors[app.packageName]?.target} style={styles.appErrorText}>
-                                {appErrors[app.packageName]?.target}
-                            </HelperText>
-                        </View>
-                    </View>
-                  </View>
-                ))}
-              </Card.Content>
-            </Card>
-          ) : (
-            !isFetchingApps && !error && (
-              <Card style={styles.card}>
-                <Card.Content>
-                  <Text style={styles.noAppsText}>監視対象のアプリがありません。右上の「＋」ボタンから手動で追加するか、スマートフォンをご利用後、再度お試しください。</Text>
-                </Card.Content>
-              </Card>
-            )
-          )}
-
+      <Searchbar
+        placeholder="アプリ名で検索"
+        onChangeText={setSearchQuery}
+        value={searchQuery}
+        style={styles.searchbar}
+      />
+      {error && <Text style={styles.errorText}>{error}</Text>}
+      {filteredApps.length === 0 && !isFetchingApps && !error && (
+          <View style={styles.centeredContainer}>
+              <Text>表示できるアプリが見つかりません。</Text>
+              {searchQuery !== '' && <Text>検索条件を変えてお試しください。</Text>}
+          </View>
+      )}
+      <FlatList
+        data={filteredApps}
+        renderItem={renderAppItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        ListFooterComponent={(
           <Button 
             mode="contained" 
             onPress={handleConfirm} 
-            style={styles.button}
-            disabled={isLoading || isFetchingApps || !!error || isAnyAppError || displayApps.length === 0}
+            style={styles.confirmButton}
+            disabled={isLoading}
+            loading={isLoading}
           >
-            {isLoading ? '処理中...' : '決定して支払いへ進む'}
+            決定して支払いへ進む
           </Button>
-        </View>
-      </ScrollView>
-    </PaperProvider>
+        )}
+      />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flexGrow: 1,
-  },
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f0f0f0',
   },
-  centered: {
+  centeredContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    textAlign: 'center',
-    color: '#333',
+  loadingText: {
+    marginTop: 10,
   },
-  description: {
-    fontSize: 14,
-    marginBottom: 20,
-    textAlign: 'left',
-    color: '#555',
-    paddingHorizontal: 8,
-  },
-  card: {
-    marginBottom: 20,
-    elevation: 2,
-    borderRadius: 8,
-  },
-  appRowContainer: {
-    marginBottom: 20,
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  appSubheading: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 10,
-    color: '#444',
-  },
-  inputRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  inputContainer: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
-  appInput: {
-    backgroundColor: '#fff',
-  },
-  appErrorText: {
-    fontSize: 12,
-    paddingLeft: 2,
-    minHeight: 18,
-  },
-  generalErrorText: {
-    textAlign: 'center',
-    marginBottom: 15,
-    fontSize: 16,
-    color: 'red',
-  },
-  noAppsText: {
-    textAlign: 'center',
-    fontSize: 16,
-    paddingVertical: 20,
-    color: '#666',
-  },
-  button: {
-    marginTop: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
+  searchbar: {
+    margin: 8,
   },
   errorText: {
     color: 'red',
-    marginBottom: 10,
-  },
-  checkboxContainer: {
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    alignSelf: 'flex-start',
-  },
-  checkboxLabel: {
-    fontSize: 14,
-    marginLeft: -8,
-  },
-  appHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  appTitle: {
-    fontSize: 18,
-    flexShrink: 1,
-  },
-  usageInfo: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
-  },
-  infoText: {
     textAlign: 'center',
-    marginVertical: 20,
-    fontSize: 16,
-    color: '#555',
+    margin: 10,
+  },
+  listContent: {
+    paddingBottom: 80,
+  },
+  card: {
+    marginHorizontal: 8,
+    marginVertical: 4,
+  },
+  input: {
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  confirmButton: {
+    margin: 16,
+    paddingVertical: 8,
   },
 });
 

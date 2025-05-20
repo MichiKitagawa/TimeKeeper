@@ -10,32 +10,35 @@ interface UserData {
   uid: string;
   timeLimitSet?: boolean;
   paymentCompleted?: boolean;
-  currentChallengeId?: string;
+  // currentChallengeId?: string; // チャレンジ機能削除に伴い不要
   initialDailyUsageLimit?: { total: number | null; byApp?: { [key: string]: number } };
-  currentDailyUsageLimit?: { total: number | null; byApp?: { [key: string]: number } };
-  currentLimit?: { total: number | null; byApp?: { [key: string]: number } };
-  // 他にもuserService.tsのUserDocumentDataに合わせたフィールドがあれば追加
+  currentDailyUsageLimit?: { total: number | null; byApp?: { [key: string]: number } }; // これはTimeSettingScreenで設定されたcurrentLimitと同値になる想定
+  currentLimit?: { total: number | null; byApp?: { [key: string]: number } }; 
 }
 
-// challengesドキュメントのデータ型 (必要な部分のみ)
+// challengesドキュメントのデータ型は不要なので削除
+/*
 interface ChallengeData {
     userId: string;
     initialLimitMinutes?: number;
     currentDailyLimitMinutes?: number;
     targetLimitMinutes?: number;
     status?: string;
-    remainingDays?: number | null; // 残り日数を保持
-    // targetDays や daysElapsed を追加することも検討
+    remainingDays?: number | null;
 }
+*/
 
 export const dailyScheduledBatch = functions.region("asia-northeast1")
-  .pubsub.schedule("every day 00:00")
+  .pubsub.schedule("every day 00:00") // JSTの午前0時
   .timeZone("Asia/Tokyo")
   .onRun(async (context: functions.EventContext) => {
-    functions.logger.info("Batch job started: dailyScheduledBatch", {structuredData: true});
+    functions.logger.info("Batch job started: dailyScheduledBatch (No-op as per new spec)", {structuredData: true});
 
-    // アクティブなチャレンジを持つか、時間設定と支払いが完了しているユーザーを対象とする
-    // ここでは簡略化のため timeLimitSet と paymentCompleted を持つユーザーを対象
+    // 現状、日次バッチでユーザーの currentDailyUsageLimit を自動更新するロジックは不要になりました。
+    // currentDailyUsageLimit は TimeSettingScreen でユーザーが設定した currentLimit と同値として設定され、
+    // 日々変動するものではなくなります。
+    // 将来的に日次処理が必要になった場合に備えて、基本的な構造のみ残します。
+
     const activeUsersRef = db.collection("users")
                                 .where("timeLimitSet", "==", true)
                                 .where("paymentCompleted", "==", true);
@@ -44,87 +47,26 @@ export const dailyScheduledBatch = functions.region("asia-northeast1")
       const usersSnapshot = await activeUsersRef.get();
 
       if (usersSnapshot.empty) {
-        functions.logger.info("No active users found for daily limit reduction.");
+        functions.logger.info("No active users found for daily processing.");
         return null;
       }
 
-      const batch = db.batch();
-      let updatedUsersCount = 0;
+      // const batch = db.batch(); // 更新処理がないためバッチも不要
+      // let updatedUsersCount = 0;
 
       usersSnapshot.forEach((userDocSnap: admin.firestore.QueryDocumentSnapshot) => {
-        const userData = userDocSnap.data() as UserData;
-        const userId = userDocSnap.id;
+        // const userData = userDocSnap.data() as UserData;
+        // const userId = userDocSnap.id;
 
-        if (!userData.initialDailyUsageLimit?.byApp || 
-            !userData.currentLimit?.byApp || 
-            !userData.currentDailyUsageLimit?.byApp) {
-          functions.logger.warn(`User ${userId} is missing necessary time limit data. Skipping.`);
-          return; // 必要なデータがない場合はスキップ
-        }
-
-        const newCurrentDailyUsageByApp: { [key: string]: number } = {};
-        let newTotalCurrentDailyUsage = 0;
-        let allTargetsReached = true; // 全てのアプリが目標時間に達したか
-
-        for (const pkgName in userData.initialDailyUsageLimit.byApp) {
-          const initialLimit = userData.initialDailyUsageLimit.byApp[pkgName]; // このユーザーが設定したこのアプリの初期使用時間
-          const targetLimit = userData.currentLimit.byApp[pkgName] ?? 0; // このアプリの目標時間 (未設定なら0)
-          // 昨日までの時点で、このアプリの利用が許可されていた時間
-          let currentDailyLimitForApp = userData.currentDailyUsageLimit.byApp[pkgName];
-
-          if (typeof currentDailyLimitForApp !== 'number') {
-            // currentDailyUsageLimit.byApp[pkgName] が未設定(または数値でない)の場合、initialLimitから開始
-            currentDailyLimitForApp = initialLimit;
-          }
-
-          let newAppLimit = currentDailyLimitForApp;
-          if (currentDailyLimitForApp > targetLimit) {
-            newAppLimit = Math.max(targetLimit, currentDailyLimitForApp - 1);
-            allTargetsReached = false; // まだ目標に達していないアプリがある
-          }
-          
-          newCurrentDailyUsageByApp[pkgName] = newAppLimit;
-          newTotalCurrentDailyUsage += newAppLimit;
-        }
+        // ユーザーごとの日次処理が必要な場合はここに記述
+        // 例: functions.logger.info(`Processing user ${userId} for daily tasks.`);
         
-        // users ドキュメントの更新内容
-        const userUpdateData: Partial<UserData> = {
-          currentDailyUsageLimit: {
-            total: newTotalCurrentDailyUsage,
-            byApp: newCurrentDailyUsageByApp,
-          },
-        };
-        batch.update(userDocSnap.ref, userUpdateData);
-        updatedUsersCount++;
-        functions.logger.info(`User ${userId}: currentDailyUsageLimit updated. New total: ${newTotalCurrentDailyUsage}`);
-
-        // --- challenges コレクションの更新 --- 
-        if (userData.currentChallengeId) {
-            const challengeRef = db.collection("challenges").doc(userData.currentChallengeId);
-            const challengeUpdateData: Partial<ChallengeData> = {
-                currentDailyLimitMinutes: newTotalCurrentDailyUsage,
-            };
-
-            // remainingDays の更新 (例: 単純に1日減らす。より正確には目標からの差で計算)
-            // この部分は要件に合わせて調整が必要
-            // const challengeDoc = (await challengeRef.get()).data() as ChallengeData | undefined;
-            // if (challengeDoc && typeof challengeDoc.remainingDays === 'number') {
-            //    challengeUpdateData.remainingDays = Math.max(0, challengeDoc.remainingDays - 1);
-            // }
-            
-            if (allTargetsReached) {
-                // 全てのアプリが目標時間に達した場合、チャレンジステータスを更新することも検討
-                // challengeUpdateData.status = "completed_target_reached"; // 例
-                // functions.logger.info(`User ${userId}, Challenge ${userData.currentChallengeId}: All targets reached.`);
-            }
-            batch.update(challengeRef, challengeUpdateData);
-            functions.logger.info(`User ${userId}, Challenge ${userData.currentChallengeId}: currentDailyLimitMinutes updated to ${newTotalCurrentDailyUsage}.`);
-        }
-
+        // currentDailyUsageLimit の自動減少ロジックは削除されました。
+        // チャレンジ関連の更新も削除されました。
       });
 
-      await batch.commit();
-      functions.logger.info(`Batch job successful: Updated daily limits for ${updatedUsersCount} users.`);
+      // await batch.commit(); // 更新処理がないためコミットも不要
+      functions.logger.info(`Batch job successful: Daily processing for ${usersSnapshot.size} users considered (no specific updates performed).`);
       return null;
     } catch (error) {
       functions.logger.error("Batch job failed: dailyScheduledBatch", error);
