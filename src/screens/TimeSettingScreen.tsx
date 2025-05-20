@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert, ScrollView, ActivityIndicator, FlatList } from 'react-native';
+import { View, StyleSheet, Alert, ActivityIndicator, FlatList } from 'react-native';
 import { TextInput, Button, Text, HelperText, Provider as PaperProvider, Card, Title, Appbar, Subheading, Checkbox, Searchbar, List } from 'react-native-paper';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -26,6 +26,10 @@ const TimeSettingScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [appErrors, setAppErrors] = useState<{[key: string]: { initial?: string | null, target?: string | null }}>({});
 
+  const filteredApps = allInstalledApps.filter(app => 
+    app.appName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const fetchAndInitializeApps = useCallback(async () => {
     if (!currentUser) {
       Alert.alert("エラー", "ユーザーがログインしていません。");
@@ -38,19 +42,34 @@ const TimeSettingScreen = () => {
 
     try {
       const installedApps = await getNativeInstalledLaunchableApps();
+      console.log('Installed Apps:', JSON.stringify(installedApps, null, 2));
       const userDoc = await getUserDocument(currentUser.uid);
       const existingInitialLimits = userDoc?.initialDailyUsageLimit?.byApp || {};
       const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
       const existingLockedApps = userDoc?.lockedApps || [];
 
-      const initializedApps: DisplayAppInfoForSetting[] = installedApps.map(app => ({
-        ...app,
-        id: app.packageName,
-        currentUsageInput: existingInitialLimits[app.packageName]?.toString() || '',
-        targetUsageInput: existingTargetLimits[app.packageName]?.toString() || '',
-        isSelectedToTrack: existingLockedApps.includes(app.packageName) || 
-                           (!!existingInitialLimits[app.packageName] && !!existingTargetLimits[app.packageName]),
-      })).sort((a, b) => a.appName.localeCompare(b.appName));
+      const processedAppPackages = new Set<string>();
+      let appKeySuffix = 0;
+
+      const initializedApps: DisplayAppInfoForSetting[] = installedApps.reduce((acc, app) => {
+        let uniqueId = app.packageName;
+        if (processedAppPackages.has(app.packageName)) {
+          // パッケージ名が重複している場合、一意なIDを生成
+          uniqueId = `${app.packageName}_${appKeySuffix++}`;
+          console.warn(`Duplicate packageName found: ${app.packageName}. Assigning unique key: ${uniqueId}`);
+        }
+        processedAppPackages.add(app.packageName);
+
+        acc.push({
+          ...app,
+          id: uniqueId, // ここで uniqueId を使用
+          currentUsageInput: existingInitialLimits[app.packageName]?.toString() || '',
+          targetUsageInput: existingTargetLimits[app.packageName]?.toString() || '',
+          isSelectedToTrack: existingLockedApps.includes(app.packageName) || 
+                             (!!existingInitialLimits[app.packageName] && !!existingTargetLimits[app.packageName]),
+        });
+        return acc;
+      }, [] as DisplayAppInfoForSetting[]).sort((a, b) => a.appName.localeCompare(b.appName));
 
       setAllInstalledApps(initializedApps);
       if (initializedApps.length === 0) {
@@ -204,10 +223,6 @@ const TimeSettingScreen = () => {
     }
   };
 
-  const filteredApps = allInstalledApps.filter(app => 
-    app.appName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const renderAppItem = ({ item }: { item: DisplayAppInfoForSetting }) => (
     <Card style={styles.card}>
       <List.Item 
@@ -254,47 +269,55 @@ const TimeSettingScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
-      <Appbar.Header>
-        <Appbar.Content title="時間設定" />
-      </Appbar.Header>
-      <Searchbar
-        placeholder="アプリ名で検索"
-        onChangeText={setSearchQuery}
-        value={searchQuery}
-        style={styles.searchbar}
-      />
-      {error && <Text style={styles.errorText}>{error}</Text>}
-      {filteredApps.length === 0 && !isFetchingApps && !error && (
-          <View style={styles.centeredContainer}>
-              <Text>表示できるアプリが見つかりません。</Text>
-              {searchQuery !== '' && <Text>検索条件を変えてお試しください。</Text>}
-          </View>
-      )}
-      <FlatList
-        data={filteredApps}
-        renderItem={renderAppItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListFooterComponent={(
-          <Button 
-            mode="contained" 
-            onPress={handleConfirm} 
-            style={styles.confirmButton}
-            disabled={isLoading}
-            loading={isLoading}
-          >
-            決定して支払いへ進む
-          </Button>
-        )}
-      />
-    </View>
+    <PaperProvider>
+      <View style={styles.container}>
+        <Appbar.Header>
+          <Appbar.Content title="時間設定" />
+        </Appbar.Header>
+        <FlatList
+          data={filteredApps}
+          renderItem={renderAppItem}
+          keyExtractor={item => item.id}
+          ListHeaderComponent={
+            <View>
+              <Searchbar
+                placeholder="アプリを検索"
+                onChangeText={setSearchQuery}
+                value={searchQuery}
+                style={styles.searchbar}
+              />
+              {error && <HelperText type="error" visible={!!error} style={styles.generalError}>{error}</HelperText>}
+              {filteredApps.length === 0 && !isFetchingApps && !error && (
+                <Text style={styles.noResultsText}>
+                  {searchQuery ? `"${searchQuery}"に一致するアプリは見つかりませんでした。` : "表示できるアプリがありません。"}
+                </Text>
+              )}
+            </View>
+          }
+          ListFooterComponent={
+            <View style={styles.footerControls}>
+              <Button 
+                mode="contained" 
+                onPress={handleConfirm} 
+                loading={isLoading}
+                disabled={isLoading || isFetchingApps || Object.values(appErrors).some(errs => errs.initial || errs.target)}
+                style={styles.button}
+              >
+                設定を保存して支払いへ
+              </Button>
+            </View>
+          }
+          contentContainerStyle={styles.listContentContainer}
+        />
+      </View>
+    </PaperProvider>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f5f5f5',
   },
   centeredContainer: {
     flex: 1,
@@ -306,28 +329,37 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   searchbar: {
-    margin: 8,
-  },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
     margin: 10,
   },
-  listContent: {
-    paddingBottom: 80,
+  listContentContainer: {
+    paddingBottom: 20,
   },
   card: {
-    marginHorizontal: 8,
-    marginVertical: 4,
+    marginHorizontal: 10,
+    marginBottom: 10,
+    elevation: 2,
   },
   input: {
-    marginTop: 8,
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  confirmButton: {
-    margin: 16,
-    paddingVertical: 8,
+  button: {
+    margin: 10,
+    marginTop: 20,
   },
+  footerControls: {
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
+  generalError: {
+    marginHorizontal: 15,
+    fontSize: 14,
+  },
+  noResultsText: {
+    textAlign: 'center',
+    marginVertical: 20,
+    fontSize: 16,
+    color: '#666',
+  }
 });
 
 export default TimeSettingScreen; 
