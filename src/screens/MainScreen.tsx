@@ -213,26 +213,35 @@ const MainScreen = () => {
 
   return (
     <PaperProvider>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Subheading style={styles.header}>監視対象アプリの利用状況</Subheading>
-        {displayAppUsages.length > 0 ? (
-          <FlatList
-            data={displayAppUsages}
-            renderItem={renderAppUsageItem}
-            keyExtractor={item => item.packageName}
-          />
-        ) : (
+      {displayAppUsages.length > 0 ? (
+        <FlatList
+          ListHeaderComponent={() => <Subheading style={styles.header}>監視対象アプリの利用状況</Subheading>}
+          data={displayAppUsages}
+          renderItem={renderAppUsageItem}
+          keyExtractor={item => item.packageName}
+          ListFooterComponent={() => (
+            <Button 
+              mode="contained"
+              onPress={() => navigation.navigate('TimeSettingScreen')}
+              style={styles.button}
+            >
+              時間設定を編集する
+            </Button>
+          )}
+          contentContainerStyle={styles.container}
+        />
+      ) : (
+        <View style={styles.centeredContainer}> 
           <Text style={styles.infoText}>時間設定画面で監視するアプリと利用時間を設定してください。</Text>
-        )}
-
-        <Button 
-          mode="contained"
-          onPress={() => navigation.navigate('TimeSettingScreen')}
-          style={styles.button}
-        >
-          時間設定を編集する
-        </Button>
-      </ScrollView>
+          <Button 
+            mode="contained"
+            onPress={() => navigation.navigate('TimeSettingScreen')}
+            style={styles.button}
+          >
+            時間設定を行う
+          </Button>
+        </View>
+      )}
     </PaperProvider>
   );
 };
