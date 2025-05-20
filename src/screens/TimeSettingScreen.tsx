@@ -13,6 +13,7 @@ interface DisplayAppInfoForSetting extends InstalledAppInfo {
   currentUsageInput: string;
   targetUsageInput: string;
   isSelectedToTrack: boolean;
+  isCurrentUsageSet: boolean;
 }
 
 const TimeSettingScreen = () => {
@@ -25,7 +26,6 @@ const TimeSettingScreen = () => {
   const [isFetchingApps, setIsFetchingApps] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [appErrors, setAppErrors] = useState<{[key: string]: { initial?: string | null, target?: string | null }}>({});
-  const [isInitialSettingDone, setIsInitialSettingDone] = useState(false);
 
   const filteredApps = allInstalledApps.filter(app => 
     app.appName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -48,7 +48,6 @@ const TimeSettingScreen = () => {
       const existingInitialLimits = userDoc?.initialDailyUsageLimit?.byApp || {};
       const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
       const existingLockedApps = userDoc?.lockedApps || [];
-      setIsInitialSettingDone(userDoc?.timeLimitSet || false);
 
       const processedAppPackages = new Set<string>();
       let appKeySuffix = 0;
@@ -69,6 +68,7 @@ const TimeSettingScreen = () => {
           targetUsageInput: existingTargetLimits[app.packageName]?.toString() || '',
           isSelectedToTrack: existingLockedApps.includes(app.packageName) || 
                              (!!existingInitialLimits[app.packageName] && !!existingTargetLimits[app.packageName]),
+          isCurrentUsageSet: existingInitialLimits[app.packageName] !== undefined,
         });
         return acc;
       }, [] as DisplayAppInfoForSetting[]).sort((a, b) => a.appName.localeCompare(b.appName));
@@ -241,7 +241,7 @@ const TimeSettingScreen = () => {
             keyboardType="numeric"
             style={styles.input}
             error={!!appErrors[item.packageName]?.initial}
-            editable={!isInitialSettingDone}
+            editable={!item.isCurrentUsageSet}
           />
           <HelperText type="error" visible={!!appErrors[item.packageName]?.initial}>
             {appErrors[item.packageName]?.initial}
