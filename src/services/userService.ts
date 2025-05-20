@@ -13,6 +13,7 @@ import {
 import auth from '@react-native-firebase/auth';
 import functions from '@react-native-firebase/functions';
 import { AppUsage } from './usageTrackingService';
+import { InstalledAppInfo } from './nativeUsageStats';
 
 // Firestoreインスタンスを一度だけ取得
 const db = getFirestore();
@@ -31,42 +32,54 @@ export interface UserFlowStatus {
 }
 
 export interface UserTimeSettings {
-  totalInitialLimitMinutes: number; // 変更: 全体の目標時間
-  initialLimitByApp?: AppUsageLimits; // 追加: アプリごとの目標時間 (オプショナル)
+  initialDailyUsageLimit: { // ユーザーが設定した「現在の使用時間」
+    total: number;
+    byApp: AppUsageLimits;
+  };
+  targetLimit: { // ユーザーが設定した「目標時間」
+    total: number;
+    byApp: AppUsageLimits;
+  };
 }
 
 // Firestoreの users ドキュメントの型 (部分的に定義)
 interface UserDocumentData {
-  currentLimit?: {
-    total: number;
+  initialDailyUsageLimit?: { // 追加
+    total: number | null;
     byApp?: AppUsageLimits;
   };
-  challengeId?: string;
+  currentDailyUsageLimit?: { // 追加
+    total: number | null;
+    byApp?: AppUsageLimits;
+  };
+  currentLimit?: {
+    total: number | null;
+    byApp?: AppUsageLimits;
+  };
+  challengeId?: string | null;
   timeLimitSet?: boolean;
   averageUsageTimeFetched?: boolean; // getUserFlowStatusで参照するため追加
   paymentCompleted?: boolean;      // getUserFlowStatusで参照するため追加
-  // ...その他のフィールド
+  manuallyAddedApps?: InstalledAppInfo[]; // 手動追加されたアプリのリスト
   createdAt?: FieldValue; // setUserInitialTimeLimitAndCreateChallenge で参照するため追加
+  updatedAt?: FieldValue; // 追加
   uid?: string; // ensureUserDocument で参照するため追加
   paymentStatus?: string; // ensureUserDocument で参照するため追加
+  lockedApps?: string[]; // ロック対象アプリのパッケージ名リスト
 }
 
 /**
  * ユーザーの初回時間設定と新しいチャレンジの作成を行う。
  * Firestoreトランザクションを使用し、usersとchallengesコレクションへの書き込みをアトミックに行う。
+ * @param userId ユーザーID
  * @param settings 設定する時間（分単位）
  * @returns 作成されたチャレンジのID
  * @throws エラーが発生した場合
  */
 export const setUserInitialTimeLimitAndCreateChallenge = async (
+  userId: string,
   settings: UserTimeSettings
 ): Promise<string> => {
-  const currentUser = auth().currentUser;
-  if (!currentUser) {
-    throw new Error('ユーザーが認証されていません。ログインしてください。');
-  }
-
-  const userId = currentUser.uid;
   const userDocRef = doc(db, 'users', userId);
   const newChallengeRef = doc(collection(db, 'challenges')); // ID自動生成
 
@@ -83,10 +96,9 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
       transaction.set(
         userDocRef,
         {
-          currentLimit: {
-            total: settings.totalInitialLimitMinutes,
-            byApp: settings.initialLimitByApp || {},
-          },
+          initialDailyUsageLimit: settings.initialDailyUsageLimit, // 更新
+          currentDailyUsageLimit: settings.initialDailyUsageLimit, // 更新 (初期値)
+          currentLimit: settings.targetLimit, // 更新
           challengeId: newChallengeRef.id,
           timeLimitSet: true, // 目標時間設定完了フラグ
           updatedAt: serverTimestamp(),
@@ -97,8 +109,9 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
 
       transaction.set(newChallengeRef, {
         userId: userId,
-        initialLimitMinutes: settings.totalInitialLimitMinutes,
-        currentDailyLimitMinutes: settings.totalInitialLimitMinutes,
+        initialLimitMinutes: settings.initialDailyUsageLimit.total, // 更新
+        currentDailyLimitMinutes: settings.initialDailyUsageLimit.total, // 更新 (初期値)
+        targetLimitMinutes: settings.targetLimit.total, // 追加
         status: 'active' as const,
         startDate: serverTimestamp(),
       });
@@ -112,6 +125,37 @@ export const setUserInitialTimeLimitAndCreateChallenge = async (
       throw error; 
     }
     throw new Error('時間設定の保存中に不明なエラーが発生しました。');
+  }
+};
+
+/**
+ * 指定されたユーザーIDのユーザードキュメントを部分的に更新する。
+ * @param userId 更新対象のユーザーID
+ * @param data 更新するデータ (UserDocumentData の部分集合)
+ * @throws Firestoreの更新エラーが発生した場合
+ */
+export const updateUserDocument = async (userId: string, data: Partial<UserDocumentData>): Promise<void> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが指定されていません。');
+  }
+  if (!data || Object.keys(data).length === 0) {
+    console.warn('更新するデータが空です。');
+    return;
+  }
+
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    await updateDoc(userDocRef, {
+      ...data,
+      updatedAt: serverTimestamp(), // 常に更新日時をセット
+    });
+    console.log(`ユーザー (${userId}) のドキュメントを更新しました:`, data);
+  } catch (error) {
+    console.error(`ユーザー (${userId}) のドキュメント更新エラー:`, error);
+    if (error instanceof Error) {
+      throw new Error(`ユーザードキュメントの更新に失敗しました: ${error.message}`);
+    }
+    throw new Error('ユーザードキュメントの更新中に不明なエラーが発生しました。');
   }
 };
 
@@ -316,6 +360,14 @@ export const ensureUserDocument = async (uid: string): Promise<void> => {
         averageUsageTimeFetched: false,
         timeLimitSet: false,
         paymentCompleted: false,
+        initialDailyUsageLimit: { // 追加
+          total: null,
+          byApp: {}
+        },
+        currentDailyUsageLimit: { // 追加
+          total: null,
+          byApp: {}
+        },
         currentLimit: {
           total: null,
           byApp: {}
@@ -325,14 +377,22 @@ export const ensureUserDocument = async (uid: string): Promise<void> => {
       console.log(`[ensureUserDocument] User document for ${uid} created successfully.`);
     } else {
       const data = userSnap.data() as UserDocumentData;
-      if (!data.currentLimit || typeof data.currentLimit === 'number' || !data.currentLimit.hasOwnProperty('total')) {
-        await updateDoc(userDocRef, {
-          currentLimit: {
-            total: typeof data.currentLimit === 'number' ? data.currentLimit : null,
-            byApp: {}
-          },
-          updatedAt: serverTimestamp()
-        });
+      // currentLimit のマイグレーション処理は新しい構造に合わせて見直し、または削除も検討
+      // 今回の要件では initialDailyUsageLimit, currentDailyUsageLimit も確認・初期化が必要
+      const updates: Partial<UserDocumentData> = {};
+      if (!data.initialDailyUsageLimit || typeof data.initialDailyUsageLimit !== 'object' || !data.initialDailyUsageLimit.hasOwnProperty('total')) {
+        updates.initialDailyUsageLimit = { total: null, byApp: {} };
+      }
+      if (!data.currentDailyUsageLimit || typeof data.currentDailyUsageLimit !== 'object' || !data.currentDailyUsageLimit.hasOwnProperty('total')) {
+        updates.currentDailyUsageLimit = { total: null, byApp: {} };
+      }
+      if (!data.currentLimit || typeof data.currentLimit !== 'object' || !data.currentLimit.hasOwnProperty('total')) {
+        updates.currentLimit = { total: null, byApp: {} };
+      }
+      if (Object.keys(updates).length > 0) {
+        updates.updatedAt = serverTimestamp();
+        await updateDoc(userDocRef, updates);
+        console.log(`[ensureUserDocument] User document for ${uid} updated with new fields.`);
       }
     }
   } catch (error) {
@@ -440,15 +500,12 @@ export const markTimeLimitSet = async (userId: string, challengeId: string, sett
   await updateUserFlowStatus(userId, { 
     timeLimitSet: true, 
     currentChallengeId: challengeId,
-    currentLimit: settings.totalInitialLimitMinutes // UserFlowStatus.currentLimit は total のみ
+    currentLimit: settings.targetLimit.total // UserFlowStatus.currentLimit は total のみ
   });
   // users ドキュメントの currentLimit も更新
   const userDocRef = doc(db, 'users', userId);
   await updateDoc(userDocRef, {
-    currentLimit: { // 構造を修正
-      total: settings.totalInitialLimitMinutes,
-      byApp: settings.initialLimitByApp || {},
-    },
+    currentLimit: settings.targetLimit,
     challengeId: challengeId,
     timeLimitSet: true, // updateUserFlowStatusと重複するが、明示的に設定
     updatedAt: serverTimestamp(),
@@ -518,5 +575,50 @@ export const getUserFlowStatus = async (userId: string): Promise<UserFlowStatus>
       currentChallengeId: null,
       currentLimit: null,
     };
+  }
+};
+
+/**
+ * ユーザーのドキュメントを取得する
+ * @param userId 取得対象のユーザーID
+ * @returns ユーザードキュメントのスナップショットデータ、存在しない場合はnull
+ */
+export const getUserDocument = async (userId: string): Promise<UserDocumentData | null> => {
+  if (!userId) {
+    console.warn('[getUserDocument] userId is required.');
+    return null;
+  }
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    const docSnap = await getDoc(userDocRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as UserDocumentData;
+    }
+    return null;
+  } catch (error) {
+    console.error(`[getUserDocument] Error fetching user document for ${userId}:`, error);
+    throw error; // or return null based on how you want to handle errors
+  }
+};
+
+/**
+ * ユーザーが手動で追加したアプリのリストをFirestoreに保存する
+ * @param userId ユーザーID
+ * @param apps 保存するアプリ情報 (アプリ名とパッケージ名) の配列
+ */
+export const addManuallyAddedApp = async (userId: string, apps: InstalledAppInfo[]): Promise<void> => {
+  if (!userId) {
+    throw new Error('ユーザーIDが必要です。');
+  }
+  const userDocRef = doc(db, 'users', userId);
+  try {
+    await updateDoc(userDocRef, {
+      manuallyAddedApps: apps,
+      updatedAt: serverTimestamp(),
+    });
+    console.log(`User ${userId}: manuallyAddedApps updated successfully.`);
+  } catch (error) {
+    console.error(`Failed to add manually added app for user ${userId}:`, error);
+    throw error;
   }
 }; 

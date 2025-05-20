@@ -7,6 +7,7 @@ import {
   queryUsageStats,
   showUsageAccessSettings,
 } from '@brighthustle/react-native-usage-stats-manager';
+import { getNativeUsageStats, UsageStat, getNativeForegroundApp } from './nativeUsageStats';
 
 // グローバルなタイマーIDとカウンター
 let foregroundTimer: NodeJS.Timeout | null = null;
@@ -18,6 +19,7 @@ export interface AppUsageStatsData {
   packageName: string;
   appName: string; // アプリ名も取得できるか確認が必要
   totalTimeInForeground: number; // ミリ秒単位
+  lastTimeUsed: number; // 追加: 最後に使用された時間（ミリ秒単位のタイムスタンプ）
 }
 
 export interface AppUsage {
@@ -362,72 +364,49 @@ export const getAverageUsageMinutesLast30Days = async (): Promise<AverageUsage> 
   }
 };
 
-// 新しい関数: アプリ利用状況の取得 (ライブラリ使用)
+// アプリごとの利用統計を取得 (指定期間)
+// 期間の指定方法を変更: daysAgo から startDate, endDate へ
 export const getAppUsageStats = async (
   startDate: Date,
   endDate: Date,
 ): Promise<AppUsageStatsData[]> => {
-  if (Platform.OS !== 'android') {
-    console.log('Usage stats are only available on Android.');
-    return [];
-  }
-
   try {
     const hasPermission = await checkForPermission();
+    console.log(`[getAppUsageStats] Permission checked. Has permission: ${hasPermission}`);
     if (!hasPermission) {
-      console.log('Requesting usage stats permission.');
-      // ダイアログを表示して設定画面へ誘導
-      // ユーザーが許可した後、再度この関数を呼び出す必要があるかもしれない
-      showUsageAccessSettings('TimekeeperApp'); // 'TimekeeperApp' はアプリ名など、適切な文字列を指定
-      // 許可を待つか、ユーザーに再度操作を促すUIが必要
-      return []; // 一旦空を返す。呼び出し元で制御
-    }
-
-    const startMs = startDate.getTime();
-    const endMs = endDate.getTime();
-
-    // queryUsageStats は UsageEvents[] または UsageStats[] を返す。
-    // UsageStats の方が集計されているため扱いやすい。
-    // ライブラリのドキュメントや実動作を確認して、どちらの形式で返ってくるか、
-    // また、アプリ名が取得できるかを確認する必要がある。
-    // ここでは、UsageStats[] が返り、packageName と totalTimeInForeground が含まれると仮定する。
-    // アプリ名は別途取得する必要があるかもしれない。
-    const usageData = await queryUsageStats(
-      EventFrequency.INTERVAL_DAILY, // または INTERVAL_BEST など適切なものを選択
-      startMs,
-      endMs,
-    );
-    
-    console.log('Raw usage data from library:', usageData);
-
-    if (!usageData || usageData.length === 0) {
+      console.warn('Usage stats permission not granted. Please grant permission in settings.');
+      // 利用状況アクセスの設定画面を開くようユーザーに促す
+      // この関数内で showUsageAccessSettings を呼ぶと、ユーザーの操作完了を待てないため、
+      // 呼び出し元でパーミッション状態をハンドリングし、必要なら設定画面を開くようにする方が制御しやすい。
+      // ここでは、許可がない場合は空の配列を返す。
+      // showUsageAccessSettings('TimekeeperApp'); // ここで呼ぶのは避ける
       return [];
     }
 
-    // ライブラリが返すデータの型に合わせて整形する
-    // 例: {packageName: string, totalTimeInForeground: number, appName?: string }
-    // アプリ名は UsageStatsManager から直接取れない場合が多い。
-    // react-native-device-info のようなライブラリでパッケージ名からアプリ名を取得する必要があるかもしれない。
-    // ここでは、ライブラリが packageName と totalTimeInForeground を含むと仮定する。
-    // アプリ名は一旦 packageName と同じにするか、別途取得ロジックを検討。
-    
-    // queryUsageStatsの戻り値の型が不明なため、anyとして扱う。
-    // 実際にはライブラリの型定義を参照するか、実行して確認する。
-    const stats: AppUsageStatsData[] = (usageData as any[]).map(stat => ({
+    console.log(`[getAppUsageStats] Original dates: startDate=${startDate.toISOString()}, endDate=${endDate.toISOString()}`);
+    const startTimestamp = startDate.getTime();
+    const endTimestamp = endDate.getTime();
+    console.log(`[getAppUsageStats] Fetching usage stats with timestamps: start=${startTimestamp}, end=${endTimestamp}`);
+
+    // ネイティブモジュールから利用履歴を取得
+    const nativeStats = await getNativeUsageStats(startTimestamp, endTimestamp);
+
+    // ネイティブモジュールから取得したデータを処理
+    const stats: AppUsageStatsData[] = nativeStats.map(stat => ({
       packageName: stat.packageName,
-      appName: stat.appName || stat.packageName, // appName がなければ packageName を使う
-      totalTimeInForeground: stat.totalTimeInForeground || (stat.usageTime && typeof stat.usageTime === 'number' ? stat.usageTime : 0) // ライブラリの戻り値に合わせる
-    })).filter(stat => stat.totalTimeInForeground > 0); // 利用時間があるもののみ
+      appName: stat.appName,
+      totalTimeInForeground: stat.totalTimeInForeground,
+      lastTimeUsed: stat.lastTimeUsed,
+    }));
 
     return stats;
-
   } catch (error) {
-    console.error('Error fetching app usage stats:', error);
+    console.error('Error getting app usage stats:', error);
     return [];
   }
 };
 
-// 現在フォアグラウンドのアプリパッケージ名を取得する（試み）
+// 現在フォアグラウンドのアプリのパッケージ名を取得する (Androidのみ)
 // 注意: この方法は確実ではないかもしれない。ライブラリが直接的な機能を提供していない場合、
 // ネイティブモジュールを自作するか、他の方法を探す必要がある。
 // react-native-usage-stats-manager にフォアグラウンドアプリ取得機能があるか確認が必要。
@@ -441,77 +420,11 @@ export const getCurrentForegroundAppPackage = async (): Promise<string | null> =
   if (Platform.OS !== 'android') return null;
 
   try {
-    // react-native-usage-stats-manager がフォアグラウンドアプリを直接取得する機能を提供しているか確認
-    // 提供していない場合、この実装は動作しない。
-    // 代替案: 1秒などの短い間隔で最後に使われたアプリをqueryUsageStatsで調べる（非効率的）
-    // もしくは、ネイティブモジュールで ActivityManager.getRunningTasks (deprecated) や UsageStatsManager.queryEvents を使う
-    
-    // const hasPermission = await checkForPermission();
-    // if (!hasPermission) {
-    //   showUsageAccessSettings('TimekeeperApp');
-    //   return null;
-    // }
-
-    // 例: 直近数秒のイベントを取得して、最後のFOREGROUNDイベントのパッケージ名を探す
-    const now = new Date().getTime();
-    const fewSecondsAgo = now - 5000; // 5秒前
-    
-    // queryEvents のような機能がライブラリにあるか？ なければ queryUsageStats で代用を試みる。
-    // queryUsageStats は集計データなので、リアルタイムのフォアグラウンドアプリ特定には向かない可能性がある。
-    // ライブラリのドキュメントやソースを確認する必要がある。
-
-    // @brighthustle/react-native-usage-stats-manager の queryUsageStats は集計情報を返すため、
-    // リアルタイムのフォアグラウンドアプリ特定には不向き。
-    // また、同ライブラリに queryEvents のような関数は見当たらない。
-
-    // ネイティブモジュールを使ってフォアグラウンドアプリを取得する処理が必要になる可能性が高い。
-    // もしネイティブモジュールを呼び出す場合:
-    // const { UsageStatsModule } = NativeModules; // 仮のモジュール名
-    // if (UsageStatsModule && UsageStatsModule.getForegroundApp) {
-    //   const packageName = await UsageStatsModule.getForegroundApp();
-    //   return packageName;
-    // }
-    
-    // ここでは、ライブラリがそのような機能を提供していないと仮定し、
-    // `saveUsageTimeToFirestore` の呼び出し方を再考する。
-    // 現状の実装では、フォアグラウンドのアプリを特定できない場合、利用時間が正しく記録されない。
-    
-    // 一時的な対策として、フォアグラウンドのアプリを特定する処理は未実装とし、
-    // saveUsageTimeToFirestore の呼び出し部分で固定のアプリ名（または'unknown'）を使うか、
-    // もしくは、この機能が実装されるまでアプリごとの記録を部分的に制限する。
-    
-    // タスク定義に基づき、「ライブラリがフォアグラウンドアプリ特定機能を提供していればそれを利用、なければ別途方法を検討」
-    // 現状のライブラリでは直接的な機能はなさそう。
-
-    // ---- フォアグラウンドアプリ特定ロジック (仮、別途検討・実装が必要) ----
-    // console.warn("getCurrentForegroundAppPackage is not fully implemented and may not be reliable.");
-    // 実際にはネイティブ機能の呼び出しが必要。
-    // Digital WellbeingのようなアプリはOSレベルでより詳細な情報を取得できる。
-    // React Nativeからだと制限がある。
-
-    // ここでは、最も最近利用時間が記録されたアプリを返す、という簡易的なロジックを試す。
-    // (ただし、これは正確ではない)
-    const end = new Date();
-    const start = new Date(end.getTime() - 15 * 1000); // 直近15秒
-    const stats = await getAppUsageStats(start, end);
-    if (stats.length > 0) {
-      // 最も利用時間が長いものをフォアグラウンドとみなす（非常に不正確な仮定）
-      // または、最も最近のイベントを持つものを探す必要があるが、このライブラリでは難しい。
-      // stats.sort((a, b) => b.totalTimeInForeground - a.totalTimeInForeground);
-      // return stats[0].packageName;
-      // queryUsageStats は集計なので、このアプローチは不適切。
-      // 最終起動時刻(lastTimeUsed)のような情報があれば使えるが、今のライブラリの戻り値では不明。
-    }
-    // --------------------------------------------------------------------
-
-    // 現時点では、フォアグラウンドアプリを確実に特定する手段がないため null を返す。
-    // saveUsageTimeToFirestore の呼び出し側で、null の場合の処理を考慮する必要がある。
-    // (例: 'unknown_app' として記録するか、合計時間のみを更新するなど)
-    // 今回の改修では、saveUsageTimeToFirestore には必ずパッケージ名が必要なため、
-    // 呼び出し元でフォアグラウンドアプリが取得できない場合は保存処理をスキップする。
-    return null; 
+    // ネイティブモジュールからフォアグラウンドアプリを取得
+    const packageName = await getNativeForegroundApp();
+    return packageName;
   } catch (error) {
-    console.error("Error in getCurrentForegroundAppPackage (placeholder):", error);
+    console.error("Error in getCurrentForegroundAppPackage:", error);
     return null;
   }
 }; 

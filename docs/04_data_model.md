@@ -19,10 +19,22 @@ Firebase Firestoreをデータベースとして使用します。以下は主�
 *   `timeLimitSet` (boolean): 目標時間設定フロー完了フラグ
 *   `paymentCompleted` (boolean): 初回支払いフロー完了フラグ
 *   `currentChallengeId` (string, optional): 現在進行中のチャレンジID
-*   `currentLimit` (object, optional): 現在の目標時間設定
+*   `initialDailyUsageLimit` (object, optional): ユーザーが最初に設定したアプリごとの1日の使用時間（分単位）
+    *   `total` (number, optional): アプリごとの初期設定時間の合計
+    *   `byApp` (map, optional): キーはパッケージ名、値が分数。
+        *   例: `{ "com.example.app1": 300, "com.example.app2": 120 }`
+*   `currentDailyUsageLimit` (object, optional): Cloud Functionsによって毎日計算される、その日に許容されるアプリごとの使用時間（分単位）。これが `initialDailyUsageLimit` から始まり、`currentLimit` (目標時間) に向かって減少します。
+    *   `total` (number, optional): アプリごとの今日の許容時間の合計
+    *   `byApp` (map, optional): キーはパッケージ名、値が分数。
+        *   例: `{ "com.example.app1": 299, "com.example.app2": 119 }`
+*   `currentLimit` (object, optional): 現在の目標時間設定 (最終的に目指す使用時間)
     *   `total` (number, optional): アプリごとの目標時間の合計（分単位）
     *   `byApp` (map, optional): アプリごとの目標時間（分単位）。キーはパッケージ名、値が分数。
         *   例: `{ "com.example.app1": 60, "com.example.app2": 30 }`
+*   `manuallyAddedApps` (array, optional): ユーザーが手動で監視対象として追加したアプリのリスト。
+    *   各要素はオブジェクト: `{ appName: string, packageName: string }`
+*   `appNameMap` (map, optional): パッケージ名をキー、ユーザーが認識しやすいアプリ名を値とするマップ。時間設定画面などでアプリ名を表示する際に利用。`TimeSettingScreen`で設定保存時に `initialDailyUsageLimit` や `currentLimit` と一緒に保存されることを想定。
+    *   例: `{ "com.example.app1": "ゲームA", "com.google.android.gm": "Gmail" }`
 *   `preferences` (object, optional): ユーザー設定
     *   `notificationsEnabled` (boolean, optional): 通知設定
     *   `theme` (string, optional): 表示テーマ (`light` or `dark`)
@@ -72,13 +84,14 @@ Firebase Firestoreをデータベースとして使用します。以下は主�
 *   ドキュメントID: 自動生成ID
 *   **フィールド**:
     *   `userId`: String (Firebase AuthenticationのユーザーUID)
-    *   `initialLimitMinutes`: Number (チャレンジ開始時の1日の上限時間、ユーザーが設定)
-    *   `currentDailyLimitMinutes`: Number (現在の1日の上限時間。初期値は `initialLimitMinutes`。Cloud Functionsで毎日更新想定)
+    *   `initialLimitMinutes`: Number (チャレンジ開始時の1日の上限時間、ユーザーが設定した `initialDailyUsageLimit.total` の値)
+    *   `currentDailyLimitMinutes`: Number (現在の1日の上限時間。初期値は `initialLimitMinutes`。Cloud Functionsで毎日更新想定。これは `currentDailyUsageLimit.total` と連動・またはこちらを正とする)
+    *   `targetLimitMinutes`: Number (目標とする1日の上限時間、ユーザーが設定した `currentLimit.total` の値)
     *   `status`: String (`active`, `completed_reset`, `completed_continue`, `failed`。初期値は `active`)
         *備考: `completed_refund` は新しい仕様では意味が変わるため `completed_reset` などに名称変更を検討。*
     *   `startDate`: Timestamp (チャレンジ開始日時、Firestoreサーバータイムスタンプを使用)
     *   `endDate`: Timestamp | null (チャレンジ目標終了日、または自動減少により0になった日。初期状態では `null` もしくは未設定)
-    *   `targetDays`: Number | null (チャレンジ目標日数、任意。初期状態では `null` もしくは未設定)
+    *   `targetDays`: Number | null (チャレンジ目標日数、任意。初期状態では `null` もしくは未設定。`initialDailyUsageLimit` と `currentLimit` の差分から計算可能)
     *   `remainingDays`: Number | null (残り日数、Cloud Functionsで毎日更新想定。初期状態では `null` もしくは未設定)
 
 ## データ間の関連

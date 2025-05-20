@@ -10,17 +10,17 @@ import MainScreen from '../screens/MainScreen';
 import DepositScreen from '../screens/DepositScreen';
 import TimeSettingScreen from '../screens/TimeSettingScreen';
 import LockScreen from '../screens/LockScreen';
-import CompletionScreen from '../screens/CompletionScreen';
-import AverageUsageScreen from '../screens/AverageUsageScreen';
+import AddAppScreen from '../screens/AddAppScreen';
+import UnlockProcessingScreen from '../screens/UnlockProcessingScreen';
 
 // ナビゲーションパラメータリスト
 export type AppStackParamList = {
   Home: undefined;
   Deposit: undefined;
   TimeSettingScreen: undefined;
-  AverageUsageScreen: undefined;
   LockScreen: undefined;
-  CompletionScreen: { challengeId: string };
+  AddAppScreen: undefined;
+  UnlockProcessingScreen: { packageName: string, limitMinutes: number };
   // 他のApp内スクリーンもここに追加
 };
 
@@ -76,9 +76,9 @@ const AppStackScreens = ({ initialRoute = 'Home' }: { initialRoute?: keyof AppSt
     <Stack.Screen name="Home" component={MainScreen} options={{ title: 'メイン' }} />
     <Stack.Screen name="Deposit" component={DepositScreen} options={{ title: '利用料支払い' }} />
     <Stack.Screen name="TimeSettingScreen" component={TimeSettingScreen} options={{ title: '時間設定' }}/>
-    <Stack.Screen name="AverageUsageScreen" component={AverageUsageScreen} options={{ title: '平均利用時間' }} />
     <Stack.Screen name="LockScreen" component={LockScreen} options={{ title: 'ロック中', headerShown: false }} />
-    <Stack.Screen name="CompletionScreen" component={CompletionScreen} options={{ title: 'チャレンジ完了', headerShown: false }} />
+    <Stack.Screen name="AddAppScreen" component={AddAppScreen} options={{ title: 'アプリ手動追加' }} />
+    <Stack.Screen name="UnlockProcessingScreen" component={UnlockProcessingScreen} options={{ title: 'アンロック処理' }} />
     {/* Add other app screens here */}
   </Stack.Navigator>
 );
@@ -108,8 +108,8 @@ const AppNavigator = () => {
           const { averageUsageTimeFetched, timeLimitSet, paymentCompleted } = userStatus;
 
           if (!averageUsageTimeFetched) {
-            console.log('[AppNavigator] Navigating to AverageUsageScreen.');
-            setInitialRouteName('AverageUsageScreen');
+            console.log('[AppNavigator] Navigating to TimeSettingScreen. AverageUsageScreen is disabled.');
+            setInitialRouteName('TimeSettingScreen');
           } else if (!timeLimitSet) {
             console.log('[AppNavigator] Navigating to TimeSettingScreen.');
             setInitialRouteName('TimeSettingScreen');

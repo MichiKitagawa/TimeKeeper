@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native'; // AppStateは MainScreen では直接使わない
-import { Text, ProgressBar, Provider as PaperProvider, Card, Title, Paragraph, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, NativeEventEmitter, NativeModules, Alert } from 'react-native'; // ScrollView, NativeEventEmitter, NativeModules, Alert を追加
+import { Text, ProgressBar, Provider as PaperProvider, Card, Title, Paragraph, ActivityIndicator, Subheading, DataTable } from 'react-native-paper'; // Subheading, DataTable を追加
 import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import { useAuth } from '../navigation/AppNavigator';
 import { useNavigation, StackActions } from '@react-navigation/native';
@@ -8,54 +8,83 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { AppStackParamList } from '../navigation/AppNavigator';
 import { getTodayUtcTimestamp } from '../services/usageTrackingService'; // インポート
 
-// 今日の日付の0時0分0秒(UTC)を取得するヘルパー (usageTrackingServiceから拝借)
-// const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp => { // 削除
-//   const now = new Date();
-//   now.setUTCHours(0, 0, 0, 0);
-//   return firestore.Timestamp.fromDate(now);
-// };
+// users ドキュメントの型 (MainScreenで必要な部分)
+interface UserDataForMain {
+  currentChallengeId?: string | null;
+  currentDailyUsageLimit?: { // これはアプリごとの目標時間を保持するフィールドとして活用
+    total: number | null; // 全体の目標合計時間 (これは表示しないかも)
+    byApp?: { [key: string]: number }; // 各アプリの目標時間
+  };
+  lockedApps?: string[]; // ロック対象として選択されたアプリのパッケージ名リスト
+  appNameMap?: { [key: string]: string }; // パッケージ名とアプリ名をマッピングするため追加
+}
 
 interface ChallengeData {
   id: string;
-  currentDailyLimitMinutes: number;
-  remainingDays?: number; // 追加 (オプショナル)
-  targetDays?: number; // 追加 (オプショナル)
-  status?: string; // 既存のstatusも追加しておく (将来的な利用のため)
-  // 他にも必要なフィールドがあれば追加
+  currentDailyLimitMinutes: number; // これは users.currentDailyUsageLimit.total と同期されるが、表示やロジックの整合性のため残す
+  targetLimitMinutes?: number; // チャレンジの最終目標合計時間
+  remainingDays?: number; 
+  targetDays?: number; 
+  status?: string; 
 }
 
 interface UsageLogData {
-  usedMinutes: number;
-  dailyLimitReached: boolean;
-  // 他にも必要なフィールドがあれば追加
+  usedMinutes: number; // 全体の合計利用時間 (これは表示しないかも)
+  dailyLimitReached: boolean; // 全体のリミット到達 (これは使わないかも)
+  usedMinutesByPackage?: { [key: string]: number }; // 各アプリの利用時間
 }
 
-// NavigationPropの型を定義
-type MainScreenNavigationProp = StackNavigationProp<
-  AppStackParamList,
-  'Home'
->;
+// MainScreen のナビゲーションプロパティの型定義
+// (AppStackParamList から MainScreen に渡される可能性のあるルートパラメータを定義)
+type MainScreenNavigationProp = StackNavigationProp<AppStackParamList, 'Home'>;
 
 const MainScreen = () => {
   const { user } = useAuth();
   const navigation = useNavigation<MainScreenNavigationProp>();
 
-  const [currentChallengeId, setCurrentChallengeId] = useState<string | null>(null);
+  const [userData, setUserData] = useState<UserDataForMain | null>(null); // usersドキュメントの主要データを保持
   const [challengeData, setChallengeData] = useState<ChallengeData | null>(null);
   const [usageLogData, setUsageLogData] = useState<UsageLogData | null>(null);
   
-  // ローディング状態を3つのデータソースに対して管理
   const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [isLoadingChallenge, setIsLoadingChallenge] = useState(true);
   const [isLoadingUsageLog, setIsLoadingUsageLog] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
+  const [lockedAppsDetailedInfo, setLockedAppsDetailedInfo] = useState<Array<{packageName: string, appName: string, targetMinutes: number, usedMinutes: number, remainingMinutes: number, progress: number}>>([]);
 
-  // 1. ユーザー情報を購読し、challengeId を取得
+  // アンロック要求イベントのリスナー設定
+  useEffect(() => {
+    const eventEmitter = new NativeEventEmitter(NativeModules.UsageStatsModule);
+    const eventListener = eventEmitter.addListener('onUnlockRequested', (event) => {
+      console.log('Unlock requested for package:', event.packageName);
+      if (event.packageName) {
+        const appToUnlock = lockedAppsDetailedInfo.find(app => app.packageName === event.packageName);
+        if (appToUnlock) {
+          navigation.navigate('UnlockProcessingScreen', { 
+            packageName: event.packageName,
+            limitMinutes: appToUnlock.targetMinutes // targetMinutes (目標時間) を渡す
+          });
+        } else {
+          console.warn(`Unlock requested for ${event.packageName}, but app details not found in lockedAppsDetailedInfo.`);
+          Alert.alert('エラー', 'アンロック対象のアプリ情報が見つかりません。');
+        }
+      } else {
+        console.warn('Unlock requested but packageName is missing.');
+        Alert.alert('エラー', 'アンロック対象のアプリ情報がありません。');
+      }
+    });
+
+    return () => {
+      eventListener.remove();
+    };
+  }, [navigation]); // navigation を依存配列に追加
+
+  // 1. ユーザー情報を購読し、userData (currentChallengeId, currentDailyUsageLimit, appNameMapなど) を取得
   useEffect(() => {
     if (!user) {
       setIsLoadingUser(false);
-      setCurrentChallengeId(null);
+      setUserData(null);
       return;
     }
     setIsLoadingUser(true);
@@ -63,16 +92,16 @@ const MainScreen = () => {
     const unsubscribe = userDocRef.onSnapshot(
       (doc) => {
         if (doc.exists()) {
-          const data = doc.data();
-          setCurrentChallengeId(data?.challengeId || null);
-          if (!data?.challengeId) {
+          const data = doc.data() as UserDataForMain; // 型アサーション
+          setUserData(data);
+          if (!data?.currentChallengeId) {
             setError('進行中のチャレンジがありません。時間設定を行ってください。');
           } else {
-            setError(null); // ChallengeIdが見つかればエラー解除
+            setError(null); 
           }
         } else {
           setError('ユーザーデータが見つかりません。');
-          setCurrentChallengeId(null);
+          setUserData(null);
         }
         setIsLoadingUser(false);
       },
@@ -80,39 +109,51 @@ const MainScreen = () => {
         console.error("Error fetching user data: ", err);
         setError('ユーザー情報の取得に失敗しました。');
         setIsLoadingUser(false);
-        setCurrentChallengeId(null);
+        setUserData(null);
       }
     );
-    return unsubscribe; // クリーンアップ関数を返す
+    return unsubscribe; 
   }, [user]);
 
-  // 2. currentChallengeId に基づいてチャレンジ情報を購読
+  // 2. userData.currentChallengeId に基づいてチャレンジ情報を購読
   useEffect(() => {
-    if (!currentChallengeId) {
+    if (!userData?.currentChallengeId) {
       setChallengeData(null);
-      setIsLoadingChallenge(false); // ChallengeIdがなければチャレンジ情報のロードは完了(失敗扱い)
+      setIsLoadingChallenge(false); 
       return;
     }
     setIsLoadingChallenge(true);
-    const challengeDocRef = firestore().collection('challenges').doc(currentChallengeId);
+    const challengeDocRef = firestore().collection('challenges').doc(userData.currentChallengeId);
     const unsubscribe = challengeDocRef.onSnapshot(
       (doc) => {
         if (doc.exists()) {
           const data = { id: doc.id, ...doc.data() } as ChallengeData;
           setChallengeData(data);
 
-          // チャレンジ完了条件の判定
-          if (data && data.status === 'active') { // 'active' のチャレンジのみ判定
-            const isCompletedByTime = data.currentDailyLimitMinutes <= 0;
-            const isCompletedByDays = data.remainingDays != null && data.remainingDays <= 0;
+          // CompletionScreenへの遷移ロジックはひとまず維持 (全体の目標達成に基づく)
+          // アプリごとの目標達成による完了は別途検討
+          if (data && data.status === 'active') { 
+            const currentTotalUsageLimit = userData?.currentDailyUsageLimit?.total; // これはチャレンジの現在の進行度を示すものとして残す
+            const targetTotalMinutes = data.targetLimitMinutes; // チャレンジの最終目標合計
 
-            if (isCompletedByTime || isCompletedByDays) {
-              console.log('Challenge completed! Navigating to CompletionScreen.');
-              navigation.dispatch(StackActions.replace('CompletionScreen', { challengeId: data.id }));
-              return; // 遷移後は以降の処理を行わない
+            if (typeof currentTotalUsageLimit === 'number' && 
+                typeof targetTotalMinutes === 'number' && 
+                currentTotalUsageLimit <= targetTotalMinutes) {
+              console.log('Challenge completed based on overall usage limit! Navigating to CompletionScreen.');
+              // navigation.dispatch(StackActions.replace('CompletionScreen', { challengeId: data.id })); // CompletionScreen は削除された
+              // TODO: 新しい完了フローを検討 (例: 設定画面に戻って新しい目標を設定する、など)
+              Alert.alert("チャレンジ達成！", "目標利用時間を達成しました。おめでとうございます！"); 
+              // ここでは一旦アラートのみとし、ナビゲーションは別途設計
+              return; 
+            }
+            const isCompletedByDays = data.remainingDays != null && data.remainingDays <= 0;
+            if (isCompletedByDays) {
+              console.log('Challenge completed by days! Navigating to CompletionScreen.');
+              // navigation.dispatch(StackActions.replace('CompletionScreen', { challengeId: data.id })); // CompletionScreen は削除された
+              Alert.alert("チャレンジ期間終了！", "目標期間が終了しました。");
+              return; 
             }
           }
-          // setError(null); // 他のエラーを上書きしないように注意
         } else {
           setError((prevError) => prevError || '有効なチャレンジデータが見つかりません。');
           setChallengeData(null);
@@ -126,10 +167,10 @@ const MainScreen = () => {
         setIsLoadingChallenge(false);
       }
     );
-    return unsubscribe; // クリーンアップ関数を返す
-  }, [currentChallengeId]);
+    return unsubscribe; 
+  }, [userData, navigation]); // userData を依存配列に追加
 
-  // 3. usageLogsコレクションのリスナー
+  // 3. 今日の利用ログを購読
   useEffect(() => {
     if (!user) {
       setUsageLogData(null);
@@ -138,10 +179,10 @@ const MainScreen = () => {
     }
     setIsLoadingUsageLog(true);
     const todayTimestamp = getTodayUtcTimestamp();
-    if (!todayTimestamp) { // nullチェック
-      setError('日付情報の取得に失敗しました。');
+    if (!todayTimestamp) {
+      console.error("Failed to get todayTimestamp for usage log subscription");
+      setError('日付の取得に失敗し、利用ログを購読できませんでした。');
       setIsLoadingUsageLog(false);
-      setUsageLogData({ usedMinutes: 0, dailyLimitReached: false });
       return;
     }
     const usageLogQuery = firestore()
@@ -156,73 +197,53 @@ const MainScreen = () => {
           const doc = querySnapshot.docs[0];
           setUsageLogData(doc.data() as UsageLogData);
         } else {
-          setUsageLogData({ usedMinutes: 0, dailyLimitReached: false });
+          // 今日のログがまだなければ、usedMinutes: 0 として扱うか、nullのままにするか。
+          // ここではnullのままにし、表示側で対応
+          setUsageLogData(null); 
         }
-        // setError(null); // 他のエラーを上書きしないように注意
         setIsLoadingUsageLog(false);
       },
       (err) => {
         console.error("Error fetching usage log: ", err);
-        setError('利用履歴の取得に失敗しました。');
-        setUsageLogData({ usedMinutes: 0, dailyLimitReached: false });
+        setError('利用ログの取得に失敗しました。');
+        setUsageLogData(null);
         setIsLoadingUsageLog(false);
       }
     );
-    return unsubscribe; // クリーンアップ関数を返す
+    return unsubscribe;
   }, [user]);
 
-  // 4. ロック条件の判定と dailyLimitReached の更新、画面遷移
+  // 4. ロック条件の判定と画面遷移 -> コメントアウトまたは削除済み
   useEffect(() => {
-    // チャレンジ完了判定が優先されるため、challengeDataがnullの場合やstatusがactiveでない場合はロック判定に進まない可能性を考慮
-    if (user && challengeData && challengeData.status === 'active' && usageLogData) {
-      const dailyLimit = challengeData.currentDailyLimitMinutes || 0;
-      const used = usageLogData.usedMinutes || 0;
+    console.log("[MainScreen] Overall lock condition check is now handled by ForegroundService.");
+  }, [user, userData, usageLogData, navigation]);
 
-      // dailyLimit が 0 より大きく、使用時間が上限を超え、まだロックされていない場合
-      if (used >= dailyLimit && dailyLimit > 0 && !usageLogData.dailyLimitReached) {
-        console.log('Lock condition met! Navigating to LockScreen.');
-        const todayTimestamp = getTodayUtcTimestamp(); // ここでも使用
-        if (!todayTimestamp) { // nullチェック
-          console.error("Failed to get todayTimestamp for updating dailyLimitReached");
-          // エラーハンドリング: 例えばロック画面に遷移させない、またはエラーをユーザーに通知
-          return; 
-        }
-        const usageLogDocQuery = firestore()
-          .collection('usageLogs')
-          .where('userId', '==', user.uid)
-          .where('date', '==', todayTimestamp)
-          .limit(1);
-        
-        usageLogDocQuery.get().then(snapshot => {
-          if (!snapshot.empty) {
-            const docRef = snapshot.docs[0].ref;
-            docRef.update({ dailyLimitReached: true })
-              .then(() => {
-                navigation.dispatch(StackActions.replace('LockScreen')); // LockScreenへ遷移
-              })
-              .catch(err => console.error("Failed to update dailyLimitReached: ", err));
-          } else {
-            // usageLogドキュメントが存在しない場合 (理論上はusageLogData取得時に作成されるはずだが念のため)
-            // 必要であればここで作成し、dailyLimitReachedをtrueにしてから遷移
-            console.warn("UsageLog document not found when trying to set dailyLimitReached. Navigating anyway.");
-            navigation.dispatch(StackActions.replace('LockScreen'));
-          }
-        }).catch(err => {
-            console.error("Failed to query for usageLog to update dailyLimitReached: ", err);
-            // クエリ失敗時もロック画面へフォールバックする可能性があるが、エラーをログに出力して通知
-            navigation.dispatch(StackActions.replace('LockScreen'));
-        });
-      } else if (usageLogData.dailyLimitReached) {
-        // 既に dailyLimitReached が true の場合は、直接LockScreenへ (例: アプリ再起動時など)
-        console.log('Daily limit already reached, navigating to LockScreen if not already there.');
-        // 現在のルートがLockScreenでないことを確認してから遷移 (無限ループ防止)
-        const currentRoute = navigation.getState()?.routes[navigation.getState().index]?.name;
-        if (currentRoute !== 'LockScreen') {
-            navigation.dispatch(StackActions.replace('LockScreen'));
-        }
-      }
+  // 5. 表示用データの整形 (lockedAppsDetailedInfo の生成)
+  useEffect(() => {
+    if (userData && userData.lockedApps && userData.currentDailyUsageLimit?.byApp && usageLogData?.usedMinutesByPackage) {
+      const appNameMap = userData.appNameMap || {};
+      const limitsByApp = userData.currentDailyUsageLimit.byApp;
+      const usageByPackage = usageLogData.usedMinutesByPackage;
+
+      const detailedInfo = userData.lockedApps.map(pkg => {
+        const target = limitsByApp[pkg] ?? 0;
+        const used = usageByPackage[pkg] ?? 0;
+        const remaining = Math.max(0, target - used);
+        const progressVal = target > 0 ? Math.min(1, used / target) : (used > 0 ? 1 : 0);
+        return {
+          packageName: pkg,
+          appName: appNameMap[pkg] || pkg,
+          targetMinutes: target,
+          usedMinutes: used,
+          remainingMinutes: remaining,
+          progress: progressVal,
+        };
+      }).sort((a,b) => a.appName.localeCompare(b.appName)); // アプリ名でソート
+      setLockedAppsDetailedInfo(detailedInfo);
+    } else {
+      setLockedAppsDetailedInfo([]);
     }
-  }, [user, challengeData, usageLogData, navigation]);
+  }, [userData, usageLogData]);
 
   const isLoading = isLoadingUser || isLoadingChallenge || isLoadingUsageLog;
 
@@ -234,47 +255,62 @@ const MainScreen = () => {
     );
   }
 
-  // エラーがあり、かつチャレンジデータか利用ログのどちらかが無い場合にエラー表示
-  if (error && (!challengeData || !usageLogData) && currentChallengeId) { 
-    // ただし、challengeIdがないことによるエラー(setError('進行中のチャレンジがありません...')等)の場合は、challengeData が null でも正常系として扱う場面もあるので、エラー内容に応じて制御が望ましい
-    // ここでは、主要なデータ取得に失敗した場合にエラーを表示
+  if (error && (!userData || !challengeData) && userData?.currentChallengeId) { 
     if (error.includes('取得に失敗しました') || error.includes('見つかりません')) {
         return <PaperProvider><View style={styles.centered}><Text>{error}</Text></View></PaperProvider>;
     }
   }
 
-  const dailyLimitMinutes = challengeData?.currentDailyLimitMinutes ?? 0;
-  const usedMinutes = usageLogData?.usedMinutes ?? 0;
-  const remainingTime = Math.max(0, dailyLimitMinutes - usedMinutes);
-  const progress = dailyLimitMinutes > 0 ? Math.min(1, usedMinutes / dailyLimitMinutes) : (usedMinutes > 0 ? 1 : 0);
+  // チャレンジ情報（目標日までの残りなど）の表示は維持しても良い
+  const challengeDaysRemaining = challengeData?.remainingDays ?? 'N/A';
+  const challengeTargetDays = challengeData?.targetDays ?? 'N/A';
 
   return (
     <PaperProvider>
-      <View style={styles.container}>
-        {/* ユーザーに分かりやすいエラー表示 (challengeIdなしエラーなど) */}
+      <ScrollView style={styles.container}> {/* ScrollView で全体をラップ */}
         {typeof error === 'string' && (error.includes('進行中のチャレンジがありません') || error.includes('ユーザーデータが見つかりません')) &&
             <Text style={styles.errorText}>{error}</Text>}
 
         <Card style={styles.card}>
           <Card.Content>
-            <Title style={styles.title}>今日の残り時間</Title>
-            <Text style={styles.timeText}>
-              {Math.floor(remainingTime / 60)} 時間 {remainingTime % 60} 分
-            </Text>
-            <Paragraph>今日の目標: {dailyLimitMinutes > 0 ? `${dailyLimitMinutes}分` : '未設定'}</Paragraph>
+            <Title>今日のチャレンジ</Title>
+            {challengeData ? (
+              <View>
+                <Paragraph>目標達成までの残り日数: {challengeDaysRemaining} / {challengeTargetDays} 日</Paragraph>
+                {/* <Paragraph>現在の目標合計時間: {userData?.currentDailyUsageLimit?.total ?? 'N/A'} 分</Paragraph> */}
+                {/* <Paragraph>最終目標合計時間: {challengeData.targetLimitMinutes ?? 'N/A'} 分</Paragraph> */}
+              </View>
+            ) : (
+              <Paragraph>{userData?.currentChallengeId ? 'チャレンジ情報を読み込み中...' : 'チャレンジが設定されていません。'}</Paragraph>
+            )}
           </Card.Content>
         </Card>
 
-        <Card style={styles.card}>
-          <Card.Content>
-            <Title>今日の使用状況</Title>
-            <ProgressBar progress={progress} style={styles.progressBar} color={progress >= 1 ? 'red' : '#6200ee'} />
-            <Text style={styles.progressText}>
-              {usedMinutes}分 / {dailyLimitMinutes > 0 ? `${dailyLimitMinutes}分` : '--分'} 使用済み
-            </Text>
-          </Card.Content>
-        </Card>
-      </View>
+        <Subheading style={styles.sectionTitle}>監視対象アプリの利用状況</Subheading>
+        {lockedAppsDetailedInfo.length > 0 ? (
+          lockedAppsDetailedInfo.map(appInfo => (
+            <Card key={appInfo.packageName} style={styles.appCard}>
+              <Card.Content>
+                <Title style={styles.appTitle}>{appInfo.appName}</Title>
+                <View style={styles.appUsageRow}>
+                  <Text>目標: {appInfo.targetMinutes}分</Text>
+                  <Text>利用: {appInfo.usedMinutes}分</Text>
+                </View>
+                <ProgressBar progress={appInfo.progress} color={appInfo.progress >= 1 ? 'red' : 'green'} style={styles.progressBar} />
+                <Text style={styles.remainingText}>残り: {appInfo.remainingMinutes}分</Text>
+                {appInfo.usedMinutes >= appInfo.targetMinutes && appInfo.targetMinutes > 0 && (
+                    <Text style={styles.limitReachedText}>利用上限に達しました</Text>
+                )}
+                 {appInfo.targetMinutes === 0 && appInfo.usedMinutes > 0 && (
+                    <Text style={styles.limitReachedText}>本日は利用できません</Text>
+                )}
+              </Card.Content>
+            </Card>
+          ))
+        ) : (
+          <Card style={styles.card}><Card.Content><Paragraph>監視対象として設定されているアプリはありません。</Paragraph></Card.Content></Card>
+        )}
+      </ScrollView>
     </PaperProvider>
   );
 };
@@ -282,7 +318,7 @@ const MainScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+    // padding: 16, // ScrollView直下ではなく、内部要素でpaddingを調整する方が良い場合もある
     backgroundColor: '#f5f5f5',
   },
   centered: {
@@ -293,6 +329,7 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 16,
+    marginHorizontal: 16, // ScrollViewの場合、左右マージンも考慮
     elevation: 2,
   },
   title: {
@@ -323,7 +360,38 @@ const styles = StyleSheet.create({
       textAlign: 'center',
       marginBottom: 10,
       paddingHorizontal: 10,
-    }
+    },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 20,
+    marginBottom: 10,
+    marginLeft: 15,
+  },
+  appCard: {
+    marginHorizontal: 15,
+    marginBottom: 10,
+    elevation: 2,
+  },
+  appTitle: {
+    fontSize: 18,
+    marginBottom: 5,
+  },
+  appUsageRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 5,
+  },
+  remainingText: {
+    textAlign: 'right',
+    fontStyle: 'italic',
+  },
+  limitReachedText: {
+    color: 'red',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 5,
+  },
 });
 
 export default MainScreen; 
