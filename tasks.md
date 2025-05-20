@@ -40,7 +40,7 @@
     *   [x] 成功後、メイン画面へ遷移
 9.  **時間設定画面UI実装 (`TimeSettingScreen.tsx`)**
     *   [x] インストール済みアプリ一覧を検索・選択式で表示 (`getNativeInstalledLaunchableApps` を使用)。
-    *   [x] 選択したアプリに対し、「現在の1日の使用時間(ユーザー入力)」と「目標の1日の使用時間(ユーザー入力)」のフィールドを配置。
+    *   [x] 選択したアプリに対し、「現在の1日の使用時間(ユーザー入力)」と「目標の1日の使用時間(ユーザー入力)」のフィールドを配置。**「現在の1日の使用時間」は初回設定時のみ編集可能とし、以降は表示のみ（編集不可）とする。**
     *   [x] 「目標の1日の使用時間」は編集時、既存値からの短縮のみ許可するバリデーションを実装。
     *   [x] バリデーションルール実装 (1-1440分など)。
 10. **時間設定ロジック (`userService.ts`, `TimeSettingScreen.tsx`)**
@@ -149,4 +149,4 @@
 *   [ ] Android ネイティブモジュール (`UsageStatsModule.kt`) の `getInstalledLaunchableApps` は引き続き利用。
 *   [ ] React Native 連携 (`nativeUsageStats.ts`) も引き続き利用。
 *   [ ] `AddAppScreen.tsx` は削除または役割変更。
-*   [ ] `TimeSettingScreen.tsx` で手動追加（実質全アプリ選択）と時間設定を一括で行う。
+*   [x] `TimeSettingScreen.tsx` で手動追加（実質全アプリ選択）と時間設定を一括で行う。

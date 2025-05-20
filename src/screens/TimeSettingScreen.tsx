@@ -25,6 +25,7 @@ const TimeSettingScreen = () => {
   const [isFetchingApps, setIsFetchingApps] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [appErrors, setAppErrors] = useState<{[key: string]: { initial?: string | null, target?: string | null }}>({});
+  const [isInitialSettingDone, setIsInitialSettingDone] = useState(false);
 
   const filteredApps = allInstalledApps.filter(app => 
     app.appName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -47,6 +48,7 @@ const TimeSettingScreen = () => {
       const existingInitialLimits = userDoc?.initialDailyUsageLimit?.byApp || {};
       const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
       const existingLockedApps = userDoc?.lockedApps || [];
+      setIsInitialSettingDone(userDoc?.timeLimitSet || false);
 
       const processedAppPackages = new Set<string>();
       let appKeySuffix = 0;
@@ -239,6 +241,7 @@ const TimeSettingScreen = () => {
             keyboardType="numeric"
             style={styles.input}
             error={!!appErrors[item.packageName]?.initial}
+            editable={!isInitialSettingDone}
           />
           <HelperText type="error" visible={!!appErrors[item.packageName]?.initial}>
             {appErrors[item.packageName]?.initial}
