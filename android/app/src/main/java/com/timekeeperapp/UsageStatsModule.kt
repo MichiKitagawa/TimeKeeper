@@ -124,8 +124,12 @@ class UsageStatsModule(private val reactContext: ReactApplicationContext) : Reac
                 var foregroundApp: String? = null
                 val event = android.app.usage.UsageEvents.Event()
 
-                // 既知のランチャーパッケージ名と自身のパッケージ名
-                val excludedPackages = setOf("com.google.android.apps.nexuslauncher", reactApplicationContext.packageName)
+                // 既知のランチャーパッケージ名、自身のパッケージ名、パッケージインストーラー
+                val excludedPackages = setOf(
+                    "com.google.android.apps.nexuslauncher", 
+                    reactApplicationContext.packageName,
+                    "com.google.android.packageinstaller" // パッケージインストーラーを追加
+                )
 
                 var potentialForegroundApps = mutableListOf<String>()
 
@@ -153,17 +157,21 @@ class UsageStatsModule(private val reactContext: ReactApplicationContext) : Reac
                     // フォールバック: queryUsageStatsで直近のアプリを取得
                     time = System.currentTimeMillis()
                     val usageStatsList = usageStatsManager.queryUsageStats(
-                        UsageStatsManager.INTERVAL_DAILY,
-                        time - 1000 * 60, // 過去1分間
+                        UsageStatsManager.INTERVAL_BEST,
+                        time - 1000 * 60,
                         time
                     )
 
                     if (usageStatsList != null && usageStatsList.isNotEmpty()) {
-                        val sortedList = usageStatsList.sortedByDescending { it.lastTimeUsed }
+                        // totalTimeInForeground が MIN_FOREGROUND_TIME_MS 以上で、lastTimeUsed でソート
+                        val MIN_FOREGROUND_TIME_MS = 1500L // 例: 1.5秒以上フォアグラウンドだったものを対象 (調整可能)
+                        val filteredAndSortedList = usageStatsList
+                            .filter { it.totalTimeInForeground >= MIN_FOREGROUND_TIME_MS }
+                            .sortedByDescending { it.lastTimeUsed }
                         
                         // 除外パッケージに含まれない最初のアプリを見つける
                         var foundApp: String? = null
-                        for (stat in sortedList) {
+                        for (stat in filteredAndSortedList) {
                             if (!excludedPackages.contains(stat.packageName)) {
                                 foundApp = stat.packageName
                                 break
@@ -172,14 +180,30 @@ class UsageStatsModule(private val reactContext: ReactApplicationContext) : Reac
 
                         if (foundApp != null) {
                             foregroundApp = foundApp
-                            android.util.Log.d(name, "Foreground app found by queryUsageStats (excluding launchers/self): $foregroundApp")
+                            android.util.Log.d(name, "Foreground app found by queryUsageStats (INTERVAL_BEST, filtered by time): $foregroundApp")
                             promise.resolve(foregroundApp)
                         } else {
-                            android.util.Log.d(name, "No non-excluded usage stats found in fallback.")
-                            promise.resolve(null)
+                            android.util.Log.d(name, "No non-excluded usage stats found in fallback after filtering.")
+                            // フィルタリングで候補がなくなった場合、フィルタリング前のリストで再度試すか、nullを返す
+                            // ここでは一旦、フィルタリング前のリストで再度試すロジックを追加 (より多くのケースを拾うため)
+                            val fallbackSortedList = usageStatsList.sortedByDescending { it.lastTimeUsed }
+                            var fallbackFoundApp: String? = null
+                            for (stat in fallbackSortedList) {
+                                if (!excludedPackages.contains(stat.packageName)) {
+                                    fallbackFoundApp = stat.packageName
+                                    break
+                                }
+                            }
+                            if (fallbackFoundApp != null) {
+                                android.util.Log.d(name, "Foreground app found by queryUsageStats (INTERVAL_BEST, no time filter as second fallback): $fallbackFoundApp")
+                                promise.resolve(fallbackFoundApp)
+                            } else {
+                                android.util.Log.d(name, "No non-excluded usage stats found in fallback even without time filter.")
+                                promise.resolve(null)
+                            }
                         }
                     } else {
-                        android.util.Log.d(name, "UsageStatsList is null or empty in fallback.")
+                        android.util.Log.d(name, "UsageStatsList is null or empty in fallback (INTERVAL_BEST).")
                         promise.resolve(null)
                     }
                 }
