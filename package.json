@@ -22,7 +22,8 @@
     "react-native-gesture-handler": "^2.25.0",
     "react-native-paper": "^5.14.4",
     "react-native-safe-area-context": "^5.4.0",
-    "react-native-screens": "^4.10.0"
+    "react-native-screens": "^4.10.0",
+    "react-native-vector-icons": "^10.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

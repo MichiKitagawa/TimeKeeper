@@ -68,6 +68,7 @@
     *   [x] ログ削減、エラーハンドリング強化、タイマー管理の堅牢性向上
     *   [x] `getTodaysUsageMinutes`, `getAverageUsageMinutesLast30Days` ユーティリティ関数追加
     *   [x] `App.tsx` での初期化処理を再有効化
+    *   [ ] ネイティブモジュール(`UsageStatsModule.kt`)のフォアグラウンドアプリ取得ロジックにおいて、イベント取得範囲を10秒から60秒に拡大（2024/MM/DD実施）。さらなる安定性向上のため、`queryUsageStats`を利用した方法も検討の余地あり。
 14. **メイン画面でのリアルタイム表示更新**
     *   [x] Firestoreのリアルタイムリスナーを使用し、`users` や `usageLogs` の変更をメイン画面に反映。
 
@@ -145,6 +146,7 @@
 *   [x] ドキュメントの最新化 (本整備タスクで対応中)
 *   [x] MainScreenのVirtualizedListネスト警告の修正 (ScrollViewを削除しFlatListのHeader/FooterComponentsを使用)
 *   [x] MainScreenのFlatListにおけるキー重複エラーの修正 (lockedAppsの重複排除処理を追加)
+*   [ ] Androidネイティブモジュール (`UsageStatsModule.kt`) のフォアグラウンドアプリ取得ロジックの継続的な改善（`queryEvents`の範囲調整、または`queryUsageStats`利用の検討）。
 
 ## フェーズ9: 時間設定画面へのアプリ手動追加機能 (`AddAppScreen.tsx` は `TimeSettingScreen.tsx` に統合)
 

@@ -33,8 +33,8 @@ const TimeSettingScreen = () => {
 
   const fetchAndInitializeApps = useCallback(async () => {
     if (!currentUser) {
-      Alert.alert("エラー", "ユーザーがログインしていません。");
-      setIsFetchingApps(false);
+      console.error("fetchAndInitializeApps: Current user not found.");
+      setIsLoading(false);
       return;
     }
     setIsFetchingApps(true);
@@ -43,11 +43,20 @@ const TimeSettingScreen = () => {
 
     try {
       const installedApps = await getNativeInstalledLaunchableApps();
-      console.log('Installed Apps:', JSON.stringify(installedApps, null, 2));
       const userDoc = await getUserDocument(currentUser.uid);
+
+      // ★★★ デバッグログ変更 ★★★
+      console.log('[TimeSettingScreen] fetchAndInitializeApps - userDoc:', JSON.stringify(userDoc, null, 2));
+
       const existingInitialLimits = userDoc?.initialDailyUsageLimit?.byApp || {};
       const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
       const existingLockedApps = userDoc?.lockedApps || [];
+
+      // ★★★ デバッグログ変更・追加 ★★★
+      console.log('[TimeSettingScreen] fetchAndInitializeApps - existingLockedApps from userDoc:', JSON.stringify(existingLockedApps));
+      if (userDoc) {
+        console.log('[TimeSettingScreen] fetchAndInitializeApps - userDoc.lockedApps raw value:', JSON.stringify(userDoc.lockedApps));
+      }
 
       const processedAppPackages = new Set<string>();
       let appKeySuffix = 0;
@@ -55,19 +64,21 @@ const TimeSettingScreen = () => {
       const initializedApps: DisplayAppInfoForSetting[] = installedApps.reduce((acc, app) => {
         let uniqueId = app.packageName;
         if (processedAppPackages.has(app.packageName)) {
-          // パッケージ名が重複している場合、一意なIDを生成
-          uniqueId = `${app.packageName}_${appKeySuffix++}`;
-          console.warn(`Duplicate packageName found: ${app.packageName}. Assigning unique key: ${uniqueId}`);
+          appKeySuffix++;
+          uniqueId = `${app.packageName}_${appKeySuffix}`;
         }
         processedAppPackages.add(app.packageName);
 
+        const isSelected = existingLockedApps.includes(app.packageName);
+        // ★★★ デバッグログ変更 ★★★
+        console.log(`[TimeSettingScreen] fetchAndInitializeApps - App: ${app.packageName}, Raw isSelected: ${isSelected}, (existingLockedApps: ${JSON.stringify(existingLockedApps)})`);
+
         acc.push({
           ...app,
-          id: uniqueId, // ここで uniqueId を使用
+          id: uniqueId, 
           currentUsageInput: existingInitialLimits[app.packageName]?.toString() || '',
           targetUsageInput: existingTargetLimits[app.packageName]?.toString() || '',
-          isSelectedToTrack: existingLockedApps.includes(app.packageName) || 
-                             (!!existingInitialLimits[app.packageName] && !!existingTargetLimits[app.packageName]),
+          isSelectedToTrack: isSelected, // 修正後のロジック
           isCurrentUsageSet: existingInitialLimits[app.packageName] !== undefined,
         });
         return acc;
@@ -142,6 +153,9 @@ const TimeSettingScreen = () => {
   };
 
   const handleConfirm = async () => {
+    // ★★★ デバッグログ追加 ★★★
+    console.log('[TimeSettingScreen] handleConfirm - Function STsARTED');
+
     if (!currentUser) {
       Alert.alert("エラー", "ユーザー情報が見つかりません。");
       return;
@@ -153,10 +167,13 @@ const TimeSettingScreen = () => {
 
     const initialDailyUsageLimit: AppUsageLimits = {};
     const targetLimit: AppUsageLimits = {};
-    const lockedApps: string[] = [];
+    const lockedAppsSet = new Set<string>();
     const appNameMap: { [packageName: string]: string } = {};
     const userDoc = await getUserDocument(currentUser.uid);
     const existingTargetLimits = userDoc?.currentLimit?.byApp || {};
+
+    // ★★★ デバッグログ追加 ★★★
+    console.log('[TimeSettingScreen] handleConfirm - Before looping through allInstalledApps. Number of apps:', allInstalledApps.length);
 
     for (const app of allInstalledApps) {
       if (app.isSelectedToTrack) {
@@ -180,30 +197,26 @@ const TimeSettingScreen = () => {
           const currentInput = app.currentUsageInput.trim();
           const targetInput = app.targetUsageInput.trim();
 
-          // 現在の使用時間が実際に入力されている場合のみ initialDailyUsageLimit に設定
           if (currentInput !== '') {
             const initialVal = parseInt(currentInput, 10);
             if (!isNaN(initialVal)) {
               initialDailyUsageLimit[app.packageName] = initialVal;
             }
-            // 空文字列の場合、または数値でない場合は initialDailyUsageLimit にキーを追加しない
           }
           
-          // 目標時間はバリデーションエラーがなければ設定
           const targetVal = parseInt(targetInput, 10);
           if (!isNaN(targetVal)) { 
              targetLimit[app.packageName] = targetVal;
           }
         }
 
-        // isSelectedToTrack が true であれば lockedApps と appNameMap には含める
-        // 目標時間が実際に設定されているかどうかは、後続のバリデーションでチェック
         if (app.isSelectedToTrack) {
-            lockedApps.push(app.packageName);
+            lockedAppsSet.add(app.packageName);
             appNameMap[app.packageName] = app.appName;
         }
       }
     }
+    const lockedApps = Array.from(lockedAppsSet);
 
     if (hasError) {
       setIsLoading(false);
@@ -237,6 +250,9 @@ const TimeSettingScreen = () => {
       lockedApps: lockedApps,
       appNameMap: appNameMap,
     };
+
+    // ★★★ デバッグログ追加 ★★★
+    console.log('[TimeSettingScreen] handleConfirm - settingsToSave:', JSON.stringify(settingsToSave, null, 2));
 
     try {
       await setUserTimeSettings(currentUser.uid, settingsToSave);

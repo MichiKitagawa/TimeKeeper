@@ -118,27 +118,77 @@ class UsageStatsModule(private val reactContext: ReactApplicationContext) : Reac
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP_MR1) { // UsageEventsはAPI 22から
             try {
                 val usageStatsManager = reactApplicationContext.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-                val time = System.currentTimeMillis()
-                // 直近10秒間程度のイベントを問い合わせる (範囲は調整可能)
-                val events = usageStatsManager.queryEvents(time - 1000 * 10, time)
+                var time = System.currentTimeMillis()
+                // 直近60秒間程度のイベントを問い合わせる
+                var events = usageStatsManager.queryEvents(time - 1000 * 60, time)
                 var foregroundApp: String? = null
-                val event = android.app.usage.UsageEvents.Event() // 明示的にフルパスで指定
+                val event = android.app.usage.UsageEvents.Event()
+
+                // 既知のランチャーパッケージ名と自身のパッケージ名
+                val excludedPackages = setOf("com.google.android.apps.nexuslauncher", reactApplicationContext.packageName)
+
+                var potentialForegroundApps = mutableListOf<String>()
+
                 while (events.hasNextEvent()) {
                     events.getNextEvent(event)
                     if (event.eventType == android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                        foregroundApp = event.packageName
+                        // foregroundApp = event.packageName // 直接代入せず、リストに追加
+                        if (!excludedPackages.contains(event.packageName)) {
+                            potentialForegroundApps.add(event.packageName)
+                        }
                     }
                 }
+
+                // MOVE_TO_FOREGROUND イベントの中から、除外パッケージ以外で最新のものを取得
+                if (potentialForegroundApps.isNotEmpty()) {
+                    foregroundApp = potentialForegroundApps.last() // リストの最後の要素が最新のフォアグラウンドアプリ
+                }
+
+
                 if (foregroundApp != null) {
+                    android.util.Log.d(name, "Foreground app found by queryEvents (excluding launchers/self): $foregroundApp")
                     promise.resolve(foregroundApp)
                 } else {
-                    // 見つからなかった場合や、直近でフォアグラウンド遷移がない場合
-                    promise.resolve(null)
+                    android.util.Log.d(name, "Foreground app not found by queryEvents or was excluded, trying queryUsageStats as fallback.")
+                    // フォールバック: queryUsageStatsで直近のアプリを取得
+                    time = System.currentTimeMillis()
+                    val usageStatsList = usageStatsManager.queryUsageStats(
+                        UsageStatsManager.INTERVAL_DAILY,
+                        time - 1000 * 60, // 過去1分間
+                        time
+                    )
+
+                    if (usageStatsList != null && usageStatsList.isNotEmpty()) {
+                        val sortedList = usageStatsList.sortedByDescending { it.lastTimeUsed }
+                        
+                        // 除外パッケージに含まれない最初のアプリを見つける
+                        var foundApp: String? = null
+                        for (stat in sortedList) {
+                            if (!excludedPackages.contains(stat.packageName)) {
+                                foundApp = stat.packageName
+                                break
+                            }
+                        }
+
+                        if (foundApp != null) {
+                            foregroundApp = foundApp
+                            android.util.Log.d(name, "Foreground app found by queryUsageStats (excluding launchers/self): $foregroundApp")
+                            promise.resolve(foregroundApp)
+                        } else {
+                            android.util.Log.d(name, "No non-excluded usage stats found in fallback.")
+                            promise.resolve(null)
+                        }
+                    } else {
+                        android.util.Log.d(name, "UsageStatsList is null or empty in fallback.")
+                        promise.resolve(null)
+                    }
                 }
             } catch (e: Exception) {
+                android.util.Log.e(name, "Error in getForegroundApp: ${e.localizedMessage}", e)
                 promise.reject("E_GET_FG_APP_ERROR", "Failed to get foreground app: ${e.localizedMessage}", e)
             }
         } else {
+            android.util.Log.w(name, "getForegroundApp called on API level < 22")
             promise.resolve(null) // APIレベルが低い場合はnull
         }
     }

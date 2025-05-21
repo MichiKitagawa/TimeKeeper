@@ -14,13 +14,14 @@ import {
   getDocs,
   deleteDoc,
 } from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
+import { getAuth } from '@react-native-firebase/auth';
 import functions from '@react-native-firebase/functions';
 import { AppUsage } from './usageTrackingService';
 import { InstalledAppInfo } from './nativeUsageStats';
 
 // Firestoreインスタンスを一度だけ取得
 const db = getFirestore();
+const auth = getAuth();
 
 // アプリごとの目標時間を格納する型
 export interface AppUsageLimits {
@@ -85,6 +86,8 @@ export const setUserTimeSettings = async (
 ): Promise<void> => {
   const userDocRef = doc(db, 'users', userId);
 
+  console.log('[userService] setUserTimeSettings - received settings:', JSON.stringify(settings, null, 2));
+
   try {
     const updateData: Partial<UserDocumentData> = {
       initialDailyUsageLimit: settings.initialDailyUsageLimit,
@@ -101,19 +104,16 @@ export const setUserTimeSettings = async (
       updateData.appNameMap = settings.appNameMap;
     }
 
-    await runTransaction(db, async (transaction) => {
-      const userDocSnap = await transaction.get(userDocRef);
-      const userSnapData = userDocSnap.data() as UserDocumentData | undefined;
+    console.log('[userService] setUserTimeSettings - updateData before transaction:', JSON.stringify(updateData, null, 2));
 
-      transaction.set(
-        userDocRef,
-        {
-          ...updateData,
-          createdAt: userSnapData?.createdAt ?? serverTimestamp(),
-        },
-        { merge: true }
-      );
-    });
+    await setDoc(userDocRef, 
+      { 
+        ...updateData, 
+        // createdAt は ensureUserDocument で設定されるため、ここでは通常更新しない
+        // もし未設定の場合のみ設定するロジックが必要なら別途追加
+      }, 
+      { merge: true } // 既存のフィールドを保持しつつ更新
+    );
     console.log(`ユーザー (${userId}) の時間設定を保存しました。`);
   } catch (error) {
     console.error('時間設定エラー:', error);
@@ -161,7 +161,7 @@ export const updateUserDocument = async (userId: string, data: Partial<UserDocum
  * @returns ユーザードキュメントのスナップショットデータ、存在しない場合はnull
  */
 export const getUserData = async (): Promise<UserDocumentData | null> => {
-  const currentUser = auth().currentUser;
+  const currentUser = auth.currentUser;
   if (!currentUser) {
     console.warn('[getUserData] ユーザーが認証されていません。');
     return null;
@@ -186,7 +186,7 @@ export const getUserData = async (): Promise<UserDocumentData | null> => {
  * @returns {Promise<{ status: string | null; paymentId: string | null } | null>} 支払い情報、または取得失敗時はnull。
  */
 export const getUserPaymentStatus = async (): Promise<{ status: string | null; paymentId: string | null } | null> => {
-  const currentUser = auth().currentUser;
+  const currentUser = auth.currentUser;
   if (!currentUser) {
     console.warn('[getUserPaymentStatus] ユーザーが認証されていません。');
     return null;
@@ -218,55 +218,41 @@ export const getUserPaymentStatus = async (): Promise<{ status: string | null; p
  */
 export const ensureUserDocument = async (uid: string): Promise<void> => {
   if (!uid) {
-    console.error('[ensureUserDocument] UID is null or empty, skipping.');
+    console.warn('[ensureUserDocument] uidが指定されていません。処理をスキップします。');
     return;
   }
   const userDocRef = doc(db, 'users', uid);
   try {
-    await runTransaction(db, async (transaction) => {
-      const userDoc = await transaction.get(userDocRef);
-      if (!userDoc.exists()) {
-        const initialData: UserDocumentData = {
-          uid: uid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          paymentStatus: 'unpaid',
-          timeLimitSet: false,
-          paymentCompleted: false,
-          initialDailyUsageLimit: { total: null, byApp: {} },
-          currentLimit: { total: null, byApp: {} },
-          currentDailyUsageLimit: { total: null, byApp: {} },
-          manuallyAddedApps: [],
-          lockedApps: [],
-          appNameMap: {},
-          lastActiveDate: serverTimestamp(),
-        };
-        transaction.set(userDocRef, initialData);
-        console.log(`ユーザー (${uid}) のドキュメントを初期作成しました。`);
-      } else {
-        const existingData = userDoc.data() as UserDocumentData;
-        const updates: Partial<UserDocumentData> = {};
-        if (existingData.paymentStatus === undefined) updates.paymentStatus = 'unpaid';
-        if (existingData.timeLimitSet === undefined) updates.timeLimitSet = false;
-        if (existingData.paymentCompleted === undefined) updates.paymentCompleted = false;
-        if (existingData.initialDailyUsageLimit === undefined) updates.initialDailyUsageLimit = { total: null, byApp: {} };
-        if (existingData.currentLimit === undefined) updates.currentLimit = { total: null, byApp: {} };
-        if (existingData.currentDailyUsageLimit === undefined) updates.currentDailyUsageLimit = { total: null, byApp: {} };
-        if (existingData.manuallyAddedApps === undefined) updates.manuallyAddedApps = [];
-        if (existingData.lockedApps === undefined) updates.lockedApps = [];
-        if (existingData.appNameMap === undefined) updates.appNameMap = {};
-        if (existingData.lastActiveDate === undefined) updates.lastActiveDate = serverTimestamp();
-
-        if (Object.keys(updates).length > 0) {
-          updates.updatedAt = serverTimestamp();
-          transaction.update(userDocRef, updates);
-          console.log(`ユーザー (${uid}) の既存ドキュメントに不足フィールドを初期設定しました。`, updates);
-        }
-      }
-    });
+    const userSnap = await getDoc(userDocRef);
+    if (!userSnap.exists()) {
+      console.log(`ユーザー (${uid}) のドキュメントが存在しないため、新規作成します。`);
+      const currentUser = auth.currentUser;
+      await setDoc(userDocRef, {
+        uid: uid,
+        email: currentUser?.email || '', // Firestoreに保存するemail
+        displayName: currentUser?.displayName || '', // Firestoreに保存するdisplayName
+        timeLimitSet: false,
+        paymentCompleted: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastActiveDate: serverTimestamp(),
+        paymentStatus: 'pending', // 初期ステータス
+        manuallyAddedApps: [],      // 初期状態は空配列
+        lockedApps: [],             // 初期状態は空配列
+        appNameMap: {},             // 初期状態は空オブジェクト
+        // 初期利用時間と目標時間はTimeSettingScreenで設定される想定
+      });
+      console.log(`ユーザー (${uid}) のドキュメントを新規作成しました。`);
+    } else {
+      // ドキュメントが存在する場合でもlastActiveDateを更新する (ensureのタイミングでアクティブとみなす)
+      await updateDoc(userDocRef, { updatedAt: serverTimestamp(), lastActiveDate: serverTimestamp() });
+    }
   } catch (error) {
-    console.error(`[ensureUserDocument] Error ensuring user document for ${uid}:`, error);
-    throw error;
+    console.error(`ユーザー (${uid}) のドキュメント確認/作成エラー:`, error);
+    if (error instanceof Error) {
+      throw new Error(`ユーザードキュメントの確認/作成に失敗しました: ${error.message}`);
+    }
+    throw new Error('ユーザードキュメントの確認/作成中に不明なエラーが発生しました。');
   }
 };
 
@@ -469,14 +455,23 @@ export const isUserInactive = async (userId: string, inactiveThresholdDays: numb
 };
 
 export const updateLastActiveDate = async (): Promise<void> => {
-  const currentUser = auth().currentUser;
+  const currentUser = auth.currentUser;
   if (!currentUser) {
-    console.warn('[updateLastActiveDate] ユーザーが認証されていません。');
+    console.warn('[updateLastActiveDate] ユーザーが認証されていません。最終アクティブ日時を更新できません。');
     return;
   }
   const userId = currentUser.uid;
-  await updateUserDocument(userId, { lastActiveDate: serverTimestamp() });
-  console.log(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時を更新しました。`);
+  try {
+    const userDocRef = doc(db, 'users', userId);
+    await updateDoc(userDocRef, {
+      lastActiveDate: serverTimestamp(),
+      updatedAt: serverTimestamp() // updatedAtも併せて更新
+    });
+    console.log(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時を更新しました。`);
+  } catch (error) {
+    console.error(`[updateLastActiveDate] ユーザー ${userId} の最終アクティブ日時更新エラー:`, error);
+    // ここではエラーをスローせず、コンソール出力に留める (影響範囲を限定するため)
+  }
 };
 
 export const deleteOrAnonymizeUserData = async (userId: string): Promise<void> => {

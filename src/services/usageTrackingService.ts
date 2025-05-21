@@ -1,6 +1,6 @@
 import { AppState, AppStateStatus, NativeModules, Platform } from 'react-native';
-import firestore, { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
+import { getFirestore, Timestamp, FieldValue, collection, where, limit, getDocs, addDoc, updateDoc, doc, query, serverTimestamp } from '@react-native-firebase/firestore';
+import { getAuth } from '@react-native-firebase/auth';
 import {
   EventFrequency,
   checkForPermission,
@@ -36,8 +36,11 @@ export interface AverageUsage {
   byApp?: AppUsage; // オプショナルに変更
 }
 
+const db = getFirestore();
+const auth = getAuth();
+
 // 今日の日付の0時0分0秒(UTC)を取得するヘルパー
-export const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp | null => {
+export const getTodayUtcTimestamp = (): Timestamp | null => {
   try {
     const now = new Date();
     now.setUTCHours(0, 0, 0, 0);
@@ -45,23 +48,17 @@ export const getTodayUtcTimestamp = (): FirebaseFirestoreTypes.Timestamp | null 
         console.error('UsageTracking: getTodayUtcTimestamp - Date became invalid.');
         return null;
     }
-    return firestore.Timestamp.fromDate(now);
+    return Timestamp.fromDate(now);
   } catch (error) {
     console.error('UsageTracking: Error in getTodayUtcTimestamp:', error);
     return null;
   }
 };
 
-// usageLogドキュメントID（仮。実際にはクエリで特定）
-// const getUsageLogDocId = (userId: string): string => {
-//   const today = new Date();
-//   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-//   return `${userId}_${dateStr}`;
-// };
-
 // Firestoreに今日の利用時間を保存/更新
 export const saveUsageTimeToFirestore = async (currentAppPackageName: string) => {
-  const currentUser = auth().currentUser;
+  console.log(`[UsageTrackingService] saveUsageTimeToFirestore called for app: ${currentAppPackageName}`); // ★ログ追加
+  const currentUser = auth.currentUser;
   if (!currentUser) { // ユーザーがいない場合は何もしない
     // console.log('UsageTracking: No user, skipping save.');
     return;
@@ -98,44 +95,44 @@ export const saveUsageTimeToFirestore = async (currentAppPackageName: string) =>
 
   console.log(`UsageTracking: Attempting to save ${minutesToSave} minute(s) for user ${userId} under package ${currentAppPackageName}. Accumulated: ${accumulatedSecondsInForeground}s`);
 
-  const usageLogsRef = firestore().collection('usageLogs');
+  const usageLogsCollectionRef = collection(db, 'usageLogs');
 
   try {
-    const querySnapshot = await usageLogsRef
-      .where('userId', '==', userId)
-      .where('date', '==', todayTimestamp)
-      .limit(1)
-      .get();
+    const q = query(usageLogsCollectionRef, 
+                  where('userId', '==', userId),
+                  where('date', '==', todayTimestamp),
+                  limit(1));
+    const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) {
-      await usageLogsRef.add({
+      await addDoc(usageLogsCollectionRef, {
         userId: userId,
         date: todayTimestamp,
         usedMinutes: minutesToSave,
         usedMinutesByPackage: currentAppPackageName ? { [currentAppPackageName]: minutesToSave } : {},
         dailyLimitReached: false,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        updatedAt: firestore.FieldValue.serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
     } else {
-      const doc = querySnapshot.docs[0];
-      const currentData = doc.data(); // ★追加
+      const docRef = querySnapshot.docs[0].ref;
+      const currentData = querySnapshot.docs[0].data() as { [key: string]: any };
       const currentUsedMinutes = currentData.usedMinutes || 0;
-      const currentUsedMinutesByPackage = (currentData.usedMinutesByPackage || {}) as AppUsage; // ★ パッケージ名ベースに変更
+      const currentUsedMinutesByPackage = (currentData.usedMinutesByPackage || {}) as AppUsage; 
 
-      const updateData: { // ★型を明示
+      const updateData: { 
         usedMinutes: number;
         usedMinutesByPackage?: AppUsage;
-        updatedAt: FirebaseFirestoreTypes.FieldValue;
+        updatedAt: FieldValue;
       } = {
         usedMinutes: currentUsedMinutes + minutesToSave,
-        updatedAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: serverTimestamp(),
       };
-      if (currentAppPackageName) { // ★ パッケージ名指定がある場合
+      if (currentAppPackageName) { 
         currentUsedMinutesByPackage[currentAppPackageName] = (currentUsedMinutesByPackage[currentAppPackageName] || 0) + minutesToSave;
         updateData.usedMinutesByPackage = currentUsedMinutesByPackage;
       }
-      await doc.ref.update(updateData);
+      await updateDoc(docRef, updateData);
     }
     accumulatedSecondsInForeground = accumulatedSecondsInForeground % 60;
     console.log(`UsageTracking: Successfully saved ${minutesToSave} minute(s). Remaining seconds: ${accumulatedSecondsInForeground}`);
@@ -273,7 +270,7 @@ export const initializeUsageTracking = () => {
 
 // 新しいユーティリティ関数
 export const getTodaysUsageMinutes = async (): Promise<DailyUsage> => {
-  const currentUser = auth().currentUser;
+  const currentUser = auth.currentUser;
   if (!currentUser) return { total: 0, byApp: {} };
 
   const userId = currentUser.uid;
@@ -281,18 +278,18 @@ export const getTodaysUsageMinutes = async (): Promise<DailyUsage> => {
   if (!todayTimestamp) return { total: 0, byApp: {} };
 
   try {
-    const querySnapshot = await firestore()
-      .collection('usageLogs')
-      .where('userId', '==', userId)
-      .where('date', '==', todayTimestamp)
-      .limit(1)
-      .get();
+    const usageLogsCollectionRef = collection(db, 'usageLogs');
+    const q = query(usageLogsCollectionRef,
+                  where('userId', '==', userId),
+                  where('date', '==', todayTimestamp),
+                  limit(1));
+    const querySnapshot = await getDocs(q);
 
     if (!querySnapshot.empty) {
-      const doc = querySnapshot.docs[0];
+      const docData = querySnapshot.docs[0].data() as { [key: string]: any };
       return { 
-        total: doc.data().usedMinutes || 0,
-        byApp: (doc.data().usedMinutesByPackage || {}) as AppUsage,
+        total: docData.usedMinutes || 0,
+        byApp: (docData.usedMinutesByPackage || {}) as AppUsage,
       };
     }
     return { total: 0, byApp: {} };
@@ -303,7 +300,7 @@ export const getTodaysUsageMinutes = async (): Promise<DailyUsage> => {
 };
 
 export const getAverageUsageMinutesLast30Days = async (): Promise<AverageUsage> => {
-  const currentUser = auth().currentUser;
+  const currentUser = auth.currentUser;
   if (!currentUser) return { total: 0, byApp: {} };
 
   const userId = currentUser.uid;
@@ -311,33 +308,24 @@ export const getAverageUsageMinutesLast30Days = async (): Promise<AverageUsage> 
   const startDate = new Date();
   startDate.setDate(endDate.getDate() - 30);
   
-  // firestore.Timestamp に変換 (UTCの0時基準に正規化する必要があるか検討)
-  // getTodayUtcTimestamp のようなヘルパーを使い、日付範囲をTimestampで指定するのがより正確
-  // ここでは簡単のため Date オブジェクトで比較するが、日付が変わる瞬間の扱いに注意が必要
-  const startTimestamp = firestore.Timestamp.fromDate(new Date(startDate.setUTCHours(0,0,0,0)));
-  const endTimestamp = firestore.Timestamp.fromDate(new Date(endDate.setUTCHours(23,59,59,999))); // 当日を含む
+  const startTimestamp = Timestamp.fromDate(new Date(startDate.setUTCHours(0,0,0,0)));
+  const endTimestamp = Timestamp.fromDate(new Date(endDate.setUTCHours(23,59,59,999))); 
 
   try {
-    const querySnapshot = await firestore()
-      .collection('usageLogs')
-      .where('userId', '==', userId)
-      .where('date', '>=', startTimestamp)
-      .where('date', '<=', endTimestamp)
-      .get();
+    const usageLogsCollectionRef = collection(db, 'usageLogs');
+    const q = query(usageLogsCollectionRef,
+                  where('userId', '==', userId),
+                  where('date', '>=', startTimestamp),
+                  where('date', '<=', endTimestamp));
+    const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) return { total: 0, byApp: {} };
 
     let totalMinutesSum = 0;
     const appMinutesSum: AppUsage = {};
-    const uniqueDates = new Set<string>();
 
     querySnapshot.forEach(doc => {
       const data = doc.data();
-      const docDate = data.date?.toDate()?.toISOString().split('T')[0];
-      if (docDate) {
-        uniqueDates.add(docDate);
-      }
-      
       totalMinutesSum += data.usedMinutes || 0;
       
       const usedByPackage = (data.usedMinutesByPackage || {}) as AppUsage;
@@ -422,9 +410,10 @@ export const getCurrentForegroundAppPackage = async (): Promise<string | null> =
   try {
     // ネイティブモジュールからフォアグラウンドアプリを取得
     const packageName = await getNativeForegroundApp();
+    console.log(`[UsageTrackingService] getNativeForegroundApp returned: ${packageName}`); // ★ログ追加
     return packageName;
   } catch (error) {
-    console.error("Error in getCurrentForegroundAppPackage:", error);
+    console.error("[UsageTrackingService] Error in getCurrentForegroundAppPackage:", error);
     return null;
   }
 }; 

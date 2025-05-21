@@ -135,4 +135,16 @@ TimekeeperApp/
 *   **環境変数**: APIキーやFirebase設定など、環境に依存する値は `.env` ファイルで管理し、Git管理対象外とします。`react-native-dotenv` などのライブラリを利用します。
 *   **依存関係の管理**: `package.json` を適切に管理し、不要なライブラリは削除します。`npm audit` などで脆弱性を定期的に確認します。
 
+## 10. ネイティブモジュール特記事項 (2024-07-29 追加)
+
+*   **Android `UsageStatsModule.kt`**: 
+    *   フォアグラウンドアプリ検出ロジック (`getForegroundApp` メソッド) において、ランチャーアプリ (例: `com.google.android.apps.nexuslauncher`) および自身のアプリパッケージ名が誤ってフォアグラウンドとして検出される問題に対処しました。
+    *   具体的には、`queryEvents` およびフォールバックの `queryUsageStats` から取得したパッケージ名が、既知の除外リストに含まれる場合は、それをフォアグラウンドアプリの候補から除外する処理を追加しました。
+
+## 11. ライブラリ移行 (2024-07-29 追加)
+
+*   **React Native Firebase**: 
+    *   プロジェクト全体で、React Native Firebase の古い形式のAPI呼び出し (名前空間API) を、新しい Modular SDK のAPI呼び出しに移行しました。
+    *   これにより、ライブラリの将来的なアップデートへの追従性と、Tree Shakingによるバンドルサイズの最適化が期待されます。
+
 以上の規約はプロジェクトの進行に合わせて見直し、改善していくものとします。 
